@@ -660,3 +660,19 @@ fn test_verify_random_batch() {
         }
     }
 }
+
+
+#[test]
+fn it_filter_map(){
+    let mut data = std::collections::HashMap::<u32,u8>::new();
+    data.insert(0,0);
+    data.insert(1,0);
+    data.insert(2,1);
+    data.entry(1).and_modify(|mut x| *x = 1);
+    let unlocked =
+    data.into_iter().filter(|(_,locked)|locked==&0).map(|(id,_locked)|id).collect::<Vec<u32>>();
+    unlocked.into_iter().for_each(|x|{
+        println!("x:{}",x);
+    });
+
+}

@@ -572,6 +572,12 @@ impl<'cs, E: ScalarEngine, CS: ConstraintSystem<E>> ConstraintSystem<E> for &'cs
     }
 }
 
+/// create a local thread pool
+pub(crate) fn create_local_pool() -> rayon::ThreadPool {
+    let num = num_cpus::get();
+    rayon::ThreadPoolBuilder::new().num_threads(num).build().expect("create local thread pool error")
+}
+
 #[cfg(all(test, feature = "groth16"))]
 mod tests {
     use super::*;

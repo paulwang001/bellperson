@@ -262,24 +262,27 @@ where
 
         Ok(acc)
     };
+    let pool = crate::create_local_pool();
+    pool.install(||{
+        let parts = (0..<G::Engine as ScalarEngine>::Fr::NUM_BITS)
+            .into_par_iter()
+            .step_by(c as usize)
+            .map(|skip| this(bases.clone(), density_map.clone(), exponents.clone(), skip))
+            .collect::<Vec<Result<_, _>>>();
 
-    let parts = (0..<G::Engine as ScalarEngine>::Fr::NUM_BITS)
-        .into_par_iter()
-        .step_by(c as usize)
-        .map(|skip| this(bases.clone(), density_map.clone(), exponents.clone(), skip))
-        .collect::<Vec<Result<_, _>>>();
+        parts
+            .into_iter()
+            .rev()
+            .try_fold(<G as CurveAffine>::Projective::zero(), |mut acc, part| {
+                for _ in 0..c {
+                    acc.double();
+                }
 
-    parts
-        .into_iter()
-        .rev()
-        .try_fold(<G as CurveAffine>::Projective::zero(), |mut acc, part| {
-            for _ in 0..c {
-                acc.double();
-            }
+                acc.add_assign(&part?);
+                Ok(acc)
+            })
+    })
 
-            acc.add_assign(&part?);
-            Ok(acc)
-        })
 }
 
 /// Perform multi-exponentiation. The caller is responsible for ensuring the

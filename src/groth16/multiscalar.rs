@@ -107,33 +107,37 @@ pub fn precompute_fixed_window<E: Engine>(
     points: &[E::G1Affine],
     window_size: usize,
 ) -> MultiscalarPrecompOwned<E> {
-    let table_entries = (1 << window_size) - 1;
-    let num_points = points.len();
+    let pool = crate::create_local_pool();
+    pool.install(||{
+        let table_entries = (1 << window_size) - 1;
+        let num_points = points.len();
 
-    let tables = points
-        .into_par_iter()
-        .map(|point| {
-            let mut table = Vec::with_capacity(table_entries);
-            table.push(*point);
+        let tables = points
+            .into_par_iter()
+            .map(|point| {
+                let mut table = Vec::with_capacity(table_entries);
+                table.push(*point);
 
-            let mut cur_precomp_point = point.into_projective();
+                let mut cur_precomp_point = point.into_projective();
 
-            for _ in 1..table_entries {
-                cur_precomp_point.add_assign_mixed(point);
-                table.push(cur_precomp_point.into_affine());
-            }
+                for _ in 1..table_entries {
+                    cur_precomp_point.add_assign_mixed(point);
+                    table.push(cur_precomp_point.into_affine());
+                }
 
-            table
-        })
-        .collect();
+                table
+            })
+            .collect();
 
-    MultiscalarPrecompOwned {
-        num_points,
-        window_size,
-        window_mask: (1 << window_size) - 1,
-        table_entries,
-        tables,
-    }
+        MultiscalarPrecompOwned {
+            num_points,
+            window_size,
+            window_mask: (1 << window_size) - 1,
+            table_entries,
+            tables,
+        }
+    })
+
 }
 
 /// Multipoint scalar multiplication
@@ -217,41 +221,44 @@ where
     }
 
     let num_parts = (num_points + chunk_size - 1) / chunk_size;
+    let pool = crate::create_local_pool();
+    pool.install(||{
+        (0..num_parts)
+            .into_par_iter()
+            .map(|id| {
+                // Temporary storage for scalars
+                let mut scalar_storage = vec![<E::Fr as PrimeField>::Repr::default(); chunk_size];
 
-    (0..num_parts)
-        .into_par_iter()
-        .map(|id| {
-            // Temporary storage for scalars
-            let mut scalar_storage = vec![<E::Fr as PrimeField>::Repr::default(); chunk_size];
+                let start_idx = id * chunk_size;
+                debug_assert!(start_idx < num_points);
 
-            let start_idx = id * chunk_size;
-            debug_assert!(start_idx < num_points);
-
-            let mut end_idx = start_idx + chunk_size;
-            if end_idx > num_points {
-                end_idx = num_points;
-            }
-
-            let subset = precomp_table.at_point(start_idx);
-            let scalars = match points {
-                ScalarList::Slice(ref s) => &s[start_idx..end_idx],
-                ScalarList::Getter(ref getter, _) => {
-                    for i in start_idx..end_idx {
-                        scalar_storage[i - start_idx] = getter(i);
-                    }
-                    &scalar_storage
+                let mut end_idx = start_idx + chunk_size;
+                if end_idx > num_points {
+                    end_idx = num_points;
                 }
-            };
 
-            multiscalar(&scalars, &subset, nbits)
-        }) // Accumulate results
-        .reduce(
-            || E::G1::zero(),
-            |mut acc, part| {
-                acc.add_assign(&part);
-                acc
-            },
-        )
+                let subset = precomp_table.at_point(start_idx);
+                let scalars = match points {
+                    ScalarList::Slice(ref s) => &s[start_idx..end_idx],
+                    ScalarList::Getter(ref getter, _) => {
+                        for i in start_idx..end_idx {
+                            scalar_storage[i - start_idx] = getter(i);
+                        }
+                        &scalar_storage
+                    }
+                };
+
+                multiscalar(&scalars, &subset, nbits)
+            }) // Accumulate results
+            .reduce(
+                || E::G1::zero(),
+                |mut acc, part| {
+                    acc.add_assign(&part);
+                    acc
+                },
+            )
+    })
+
 }
 
 #[cfg(target_arch = "x86_64")]

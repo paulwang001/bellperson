@@ -19,7 +19,7 @@ where
     program: opencl::Program,
     pq_buffer: opencl::Buffer<E::Fr>,
     omegas_buffer: opencl::Buffer<E::Fr>,
-    _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
+    _lock: locks::MultiGPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
     priority: bool,
 }
 
@@ -28,15 +28,22 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
-        let lock = locks::GPULock::lock();
-
-        let devices = opencl::Device::all();
-        if devices.is_empty() {
+        // let lock = locks::GPULock::lock();
+        let device = crate::gpu::get_one_device_and_lock(10);
+        if device.is_none() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
+        // drop(lock);
+        let device = device.unwrap();
+        let lock = locks::MultiGPULock::lock(vec![device.bus_id().unwrap()]);
 
-        // Select the first device for FFT
-        let device = devices[0].clone();
+        // let devices = opencl::Device::all();
+        // if devices.is_empty() {
+        //     return Err(GPUError::Simple("No working GPUs found!"));
+        // }
+        //
+        // // Select the first device for FFT
+        // let device = devices[0].clone();
 
         let src = sources::kernel::<E>(device.brand() == opencl::Brand::Nvidia);
 
@@ -45,7 +52,7 @@ where
         let omegas_buffer = program.create_buffer::<E::Fr>(LOG2_MAX_ELEMENTS)?;
 
         info!("FFT: 1 working device(s) selected.");
-        info!("FFT: Device 0: {}", program.device().name());
+        info!("FFT: Device one: {}:{}", program.device().name(),program.device().bus_id().unwrap());
 
         Ok(FFTKernel {
             program,

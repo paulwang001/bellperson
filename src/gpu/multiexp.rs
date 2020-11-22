@@ -213,7 +213,7 @@ where
     E: Engine,
 {
     kernels: Vec<SingleMultiexpKernel<E>>,
-    _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
+    _lock: locks::MultiGPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
 }
 
 impl<E> MultiexpKernel<E>
@@ -221,10 +221,15 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
-        let lock = locks::GPULock::lock();
+        // let lock = locks::GPULock::lock();
 
-        let devices = opencl::Device::all();
-
+        let used_dev = locks::get_all_device_and_lock(10);
+        if used_dev.is_empty() {
+            return Err(GPUError::Simple("GPU busy?"));
+        }
+        let devices = opencl::Device::all_iter().filter(|d|used_dev.contains(&d.bus_id().unwrap())).collect::<Vec<_>>();
+        // drop(lock);
+        let lock = locks::MultiGPULock::lock(used_dev);
         let kernels: Vec<_> = devices
             .into_iter()
             .map(|d| (d.clone(), SingleMultiexpKernel::<E>::create(d.clone(), priority)))
@@ -287,7 +292,7 @@ where
 
         let chunk_size = ((n as f64) / (num_devices as f64)).ceil() as usize;
 
-        crate::multicore::THREAD_POOL.install(|| {
+        crate::create_local_pool().install(|| {
             use rayon::prelude::*;
 
             let mut acc = <G as CurveAffine>::Projective::zero();
