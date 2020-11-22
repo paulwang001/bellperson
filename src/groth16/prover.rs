@@ -376,12 +376,12 @@ where
         let start = Instant::now();
         info!("starting proof timer");
 
-        // #[cfg(feature = "gpu")]
-        // let prio_lock = if priority {
-        //     Some(PriorityLock::lock())
-        // } else {
-        //     None
-        // };
+        #[cfg(feature = "gpu")]
+        let prio_lock = if priority {
+            Some(PriorityLock::lock())
+        } else {
+            None
+        };
 
         let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
 
@@ -556,8 +556,8 @@ where
 
         drop(multiexp_kern);
 
-        // #[cfg(feature = "gpu")]
-        // drop(prio_lock);
+        #[cfg(feature = "gpu")]
+        drop(prio_lock);
         info!("^^^^^^^^^^^^^^^^^^exp finished,{}s", now.elapsed().as_secs());
         info!("^^^^^^^^^^^^^^^^^^assign values");
         let proofs = h_s

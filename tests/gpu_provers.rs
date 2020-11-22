@@ -72,7 +72,7 @@ pub fn test_parallel_prover() {
     let pvk2 = prepare_verifying_key(&params2.vk);
 
     let higher_thread = thread::spawn(move || {
-        for _ in 0..1 {
+        for _ in 0..20 {
             let now = Instant::now();
 
             let rng = &mut thread_rng();

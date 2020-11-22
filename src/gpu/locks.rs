@@ -47,7 +47,8 @@ pub fn get_one_device_and_lock(retry:u8) ->Option<opencl::Device>{
             lockable_device.iter().filter(|x|x.1 == 0).map(|x|x.0).collect::<Vec<u32>>();
         if unlocked.is_empty() && retry > 0{
             log::warn!("get one GPU retry.{}",retry);
-            std::thread::sleep(Duration::from_secs(30));
+            drop(lockable_device);
+            std::thread::sleep(Duration::from_secs(5));
             return get_one_device_and_lock(retry -1);
         }
         if unlocked.is_empty() {
@@ -95,7 +96,7 @@ pub fn get_all_device_and_lock(retry:u8)->Vec<u32> {
     }
     else if retry > 0{
         log::warn!("get gpu retry.{}",retry);
-        std::thread::sleep(Duration::from_secs(30));
+        std::thread::sleep(Duration::from_secs(5));
         return get_all_device_and_lock(retry-1);
     }
     for (id,i) in v_idx {
