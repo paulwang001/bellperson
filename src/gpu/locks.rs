@@ -22,6 +22,13 @@ impl GPULock {
         debug!("GPU lock acquired!");
         GPULock(f)
     }
+    pub fn lock_custom(index:u8) -> GPULock {
+        debug!("Acquiring GPU lock...I-{}",index);
+        let f = File::create(tmp_path(format!("{}.{}",GPU_LOCK_NAME,index).as_str())).unwrap();
+        f.lock_exclusive().unwrap();
+        debug!("GPU lock acquired!I-{}",index);
+        GPULock(f)
+    }
 }
 impl Drop for GPULock {
     fn drop(&mut self) {
