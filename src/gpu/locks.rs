@@ -25,6 +25,7 @@ impl GPULock {
 }
 impl Drop for GPULock {
     fn drop(&mut self) {
+        self.0.unlock().expect("gpu unlock error");
         debug!("GPU lock released!");
     }
 }
