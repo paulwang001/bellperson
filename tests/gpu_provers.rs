@@ -57,7 +57,7 @@ pub fn test_parallel_prover() {
 
     // Higher prio circuit
     let c = DummyDemo {
-        interations: 10_000,
+        interations: 500_000,
     };
     // Lower prio circuit
     let c2 = DummyDemo {
