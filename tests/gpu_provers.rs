@@ -57,7 +57,7 @@ pub fn test_parallel_prover() {
 
     // Higher prio circuit
     let c = DummyDemo {
-        interations: 500_000,
+        interations: 50_000,
     };
     // Lower prio circuit
     let c2 = DummyDemo {
@@ -72,7 +72,7 @@ pub fn test_parallel_prover() {
     let pvk2 = prepare_verifying_key(&params2.vk);
 
     let higher_thread = thread::spawn(move || {
-        for _ in 0..20 {
+        for _ in 0..10 {
             let now = Instant::now();
 
             let rng = &mut thread_rng();
