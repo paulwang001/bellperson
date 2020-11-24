@@ -223,7 +223,7 @@ where
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
         // let lock = locks::GPULock::lock();
 
-        let used_dev = locks::get_all_device_and_lock(100);
+        let used_dev = locks::get_all_device_and_lock(1000);
         if used_dev.is_empty() {
             return Err(GPUError::Simple("GPU busy?"));
         }

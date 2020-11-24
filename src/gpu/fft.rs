@@ -29,7 +29,7 @@ where
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
         // let lock = locks::GPULock::lock();
-        let device = crate::gpu::get_one_device_and_lock(100);
+        let device = crate::gpu::get_one_device_and_lock(1000);
         if device.is_none() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
