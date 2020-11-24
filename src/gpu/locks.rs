@@ -38,7 +38,7 @@ pub fn all_bus() -> Vec<LockDevice> {
 
 
 /// get one unlocked device and lock
-pub fn get_one_device_and_lock(retry:u8) ->Option<opencl::Device>{
+pub fn get_one_device_and_lock(retry:u32) ->Option<opencl::Device>{
 
     let bus_id = {
         let lockable_device = LOCKABLE_DEVICES.clone();
@@ -82,7 +82,7 @@ pub fn get_one_device_and_lock(retry:u8) ->Option<opencl::Device>{
     })
 }
 
-pub fn get_all_device_and_lock(retry:u8)->Vec<u32> {
+pub fn get_all_device_and_lock(retry:u32)->Vec<u32> {
 
     let unlocked = {
         let lockable_device = LOCKABLE_DEVICES.clone();
