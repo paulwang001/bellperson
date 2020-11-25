@@ -128,6 +128,7 @@ pub fn unlock_bus_id(id: u32) {
     for (i,x) in lockable_device.iter().enumerate() {
         if x.0 == id {
             lockable_device[i] = LockDevice(id,0);
+            log::trace!("dev release:{}",id);
             break;
         }
     }
@@ -186,11 +187,12 @@ impl MultiGPULock {
 impl Drop for MultiGPULock {
     fn drop(&mut self) {
         let vv = &self.0;
+        debug!("GPU lock released!({})",vv.len());
         for (f,id) in vv {
             f.unlock().expect("GPU unlock error");
             unlock_bus_id(id.clone());
         }
-        debug!("GPU lock released!");
+
     }
 }
 

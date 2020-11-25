@@ -646,9 +646,9 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
 {
     let pool = crate::create_local_pool();
 
-    info!("create_proof_batch_priority_inner-------------------start...");
+    info!("create_proof_batch_priority_fifo-------------------start...");
     pool.install(|| {
-        info!("create_proof_batch_priority_inner-------------------pool run...");
+        info!("create_proof_batch_priority_fifo-------------------pool run...");
         let task_now = std::time::Instant::now();
         (*C2_CPU_TASKS).get();
         info!("synthesize circuit start");
@@ -661,7 +661,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
             let arc_params = Arc::new(params);
             let mut itr_rs = r_s.into_iter();
             let mut itr_ss = s_s.into_iter();
-            let (fft_tx,fft_rx) = sync_channel(get_circuit_tasks());
+            let (fft_tx,fft_rx) = sync_channel(0);
             let (input_tx,input_rx) = sync_channel(0);
             let (proof_tx,proof_rx) = sync_channel(0);
             circuits
