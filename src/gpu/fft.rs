@@ -29,13 +29,13 @@ where
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
         // let lock = locks::GPULock::lock();
-        let device = crate::gpu::get_one_device_and_lock(1000);
+        let device = crate::gpu::try_one_device(1000);
         if device.is_none() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
         // drop(lock);
-        let device = device.unwrap();
-        let lock = locks::MultiGPULock::lock(vec![device.bus_id().unwrap()]);
+        let (device,lock) = device.unwrap();
+        let lock = locks::MultiGPULock::lock_file(lock,device.bus_id().unwrap());
 
         // let devices = opencl::Device::all();
         // if devices.is_empty() {

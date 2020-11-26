@@ -299,6 +299,9 @@ where
     let r_s = (0..circuits.len()).map(|_| E::Fr::random(rng)).collect();
     let s_s = (0..circuits.len()).map(|_| E::Fr::random(rng)).collect();
 
+    // let r_s = (0..circuits.len()).map(|_| E::Fr::one()).collect();
+    // let s_s = (0..circuits.len()).map(|_| E::Fr::zero()).collect();
+
     create_proof_batch_priority::<E, C, P>(circuits, params, r_s, s_s, priority)
 }
 
@@ -615,6 +618,7 @@ where
 
                     g_b.add_assign(&b2_answer);
                     b1_answer.mul_assign(r);
+
                     g_c.add_assign(&b1_answer);
                     g_c.add_assign(&h.wait()?);
                     g_c.add_assign(&l.wait()?);
@@ -705,10 +709,10 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
 
                     info!("prover FFT:{}",n);
                     let mut log_d = 0;
-                    while (1 << log_d) < n{
+                    while (1 << log_d) < n {
                         log_d += 1;
                     }
-                    let now = std::time::Instant::now();
+
                     trace!("--------------------prover FFT start, logd:{}--------------------",log_d);
 
                     let mut a =
@@ -720,39 +724,52 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                     let mut c =
                         EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.c, Vec::new())).unwrap();
 
-                    rayon::scope_fifo(|scp|{
-                        scp.spawn_fifo(|_|{
-                            let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
-                            a.ifft(&worker, &mut fft_kern).unwrap();
-                            a.coset_fft(&worker, &mut fft_kern).unwrap();
-                            drop(fft_kern);
-                        });
-                        scp.spawn_fifo(|_|{
-                            let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
-                            b.ifft(&worker, &mut fft_kern).unwrap();
-                            b.coset_fft(&worker, &mut fft_kern).unwrap();
-                            drop(fft_kern);
-                        });
-                        scp.spawn_fifo(|_|{
-                            let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
-                            c.ifft(&worker, &mut fft_kern).unwrap();
-                            c.coset_fft(&worker, &mut fft_kern).unwrap();
-                            drop(fft_kern);
-                        });
-                    });
+                    let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
+                    let now = std::time::Instant::now();
+                    a.ifft(&worker, &mut fft_kern).unwrap();
+                    a.coset_fft(&worker, &mut fft_kern).unwrap();
+
+                    b.ifft(&worker, &mut fft_kern).unwrap();
+                    b.coset_fft(&worker, &mut fft_kern).unwrap();
+
+                    c.ifft(&worker, &mut fft_kern).unwrap();
+                    c.coset_fft(&worker, &mut fft_kern).unwrap();
+                    //
+                    // rayon::scope_fifo(|scp|{
+                    //     scp.spawn_fifo(|_|{
+                    //         let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
+                    //         a.ifft(&worker, &mut fft_kern).unwrap();
+                    //         a.coset_fft(&worker, &mut fft_kern).unwrap();
+                    //         drop(fft_kern);
+                    //     });
+                    //     scp.spawn_fifo(|_|{
+                    //         let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
+                    //         b.ifft(&worker, &mut fft_kern).unwrap();
+                    //         b.coset_fft(&worker, &mut fft_kern).unwrap();
+                    //         drop(fft_kern);
+                    //     });
+                    //     scp.spawn_fifo(|_|{
+                    //         let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
+                    //         c.ifft(&worker, &mut fft_kern).unwrap();
+                    //         c.coset_fft(&worker, &mut fft_kern).unwrap();
+                    //         drop(fft_kern);
+                    //     });
+                    // });
                     a.mul_assign(&worker, &b);
                     drop(b);
                     a.sub_assign(&worker, &c);
                     drop(c);
                     a.divide_by_z_on_coset(&worker);
                     {
-                        let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
+                        // let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
                         a.icoset_fft(&worker, &mut fft_kern).unwrap();
-                        drop(fft_kern);
+                        // drop(fft_kern);
                     }
                     let mut a = a.into_coeffs();
                     let a_len = a.len() - 1;
                     a.truncate(a_len);
+                    drop(fft_kern);
+
                     let a_s = Arc::new(
                         a.into_iter().map(|s| s.0.into_repr()).collect::<Vec<_>>(),
                     );
@@ -772,18 +789,17 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                                  s,
                                  params,
                                  priority
-                             )) = input_rx.recv() {
+                             )) = input_rx.recv()
+                {
                     let mut log_d = 0;
                     let n = prover.a.len();
                     trace!("prover mutilexp starting,a_len:{}",n);
                     while (1 << log_d) < n{
                         log_d += 1;
                     }
-                    let now = std::time::Instant::now();
-                    // for _ in 0 .. 4 {
-                    //     gl.get();
-                    // }
+
                     let mut multiexp_kern = Some(LockedMultiexpKernel::<E>::new(log_d, priority));
+                    let now = std::time::Instant::now();
                     trace!("--------------------prover mutilexp start-------------------------");
                     let h = multiexp(
                         &worker,
@@ -843,6 +859,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
 
                     let (b_g1_inputs_source, b_g1_aux_source) =
                         params.get_b_g1(b_input_density_total, b_aux_density_total).unwrap();
+
                     let b_g1_inputs = multiexp(
                         &worker,
                         b_g1_inputs_source,
@@ -850,6 +867,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         a_input_assignment.clone(),
                         &mut multiexp_kern,
                     );
+
                     let b_g1_aux = multiexp(
                         &worker,
                         b_g1_aux_source,
@@ -913,6 +931,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                                  input_assignment_len
                              )) = proof_rx.recv() {
                     let vk = params.get_vk(input_assignment_len).unwrap();
+
                     let mut g_a = vk.delta_g1.mul(r);
                     g_a.add_assign_mixed(&vk.alpha_g1);
                     let mut g_b = vk.delta_g2.mul(s);

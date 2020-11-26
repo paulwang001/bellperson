@@ -8,9 +8,11 @@ lazy_static::lazy_static! {
         let mut core_counts : HashMap<String, usize> = vec![
             // AMD
             ("gfx1010".to_string(), 2560),
+            ("gfx1010".to_string(), 2560),
             // This value was chosen to give (approximately) empirically best performance for a Radeon Pro VII.
             ("gfx906".to_string(), 7400),
             ("P102-100".to_string(), 3200),
+
             // NVIDIA
             ("Quadro RTX 6000".to_string(), 4608),
 

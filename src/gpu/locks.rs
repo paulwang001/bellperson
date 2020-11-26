@@ -36,6 +36,13 @@ pub fn all_bus() -> Vec<LockDevice> {
     bus_ids
 }
 
+fn dev_is_free(id:u32) -> Option<File>{
+    let f = File::create(tmp_path(format!("{}.{}.dev",GPU_LOCK_NAME,id).as_str())).unwrap();
+    match f.try_lock_exclusive(){
+        Ok(_) => Some(f),
+        Err(_) => None
+    }
+}
 
 /// get one unlocked device and lock
 pub fn get_one_device_and_lock(retry:u32) ->Option<opencl::Device>{
@@ -44,7 +51,7 @@ pub fn get_one_device_and_lock(retry:u32) ->Option<opencl::Device>{
         let lockable_device = LOCKABLE_DEVICES.clone();
         let mut lockable_device = lockable_device.lock().unwrap();
         let unlocked =
-            lockable_device.iter().filter(|x|x.1 == 0).map(|x|x.0).collect::<Vec<u32>>();
+            lockable_device.iter().filter(|x|x.1 == 0 ).map(|x|x.0).collect::<Vec<u32>>();
         if unlocked.is_empty() && retry > 0{
             if retry % 30 == 0 {
                 log::warn!("get one GPU retry.{}",retry);
@@ -82,6 +89,29 @@ pub fn get_one_device_and_lock(retry:u32) ->Option<opencl::Device>{
     })
 }
 
+pub fn try_one_device(retry:u32) -> Option<(opencl::Device,File)> {
+    let last_free =
+    opencl::Device::all_iter().find_map(|x|{
+        let lock = dev_is_free(x.bus_id().unwrap());
+        if lock.is_some(){
+            Some((x.clone(),lock.unwrap()))
+        }
+        else {
+            None
+        }
+    });
+    if last_free.is_none(){
+        log::trace!("GPU wait...");
+        std::thread::sleep(Duration::from_secs(1));
+        if retry < 2 {
+            return None;
+        }
+        try_one_device(retry -1)
+    }
+    else{
+        last_free
+    }
+}
 
 pub fn prove_mode()-> String{
     match std::env::var(FIL_PROOF_PROVE_FIFO){
@@ -191,6 +221,11 @@ impl MultiGPULock {
             debug!("GPU lock acquired! bus_id:{}",id);
         }
 
+        MultiGPULock(v_file)
+    }
+    pub fn lock_file(lock:File,id:u32) -> MultiGPULock {
+        let mut v_file = vec![];
+        v_file.push((lock,id));
         MultiGPULock(v_file)
     }
 
