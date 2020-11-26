@@ -648,7 +648,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
 
     info!("create_proof_batch_priority_fifo-------------------start...");
     pool.install(|| {
-        info!("create_proof_batch_priority_fifo-------------------pool run...");
+        info!("create_proof_batch_priority_fifo-------------------");
         let task_now = std::time::Instant::now();
         (*C2_CPU_TASKS).get();
         info!("synthesize circuit start");
