@@ -314,10 +314,16 @@ where
     C: Circuit<E> + Send,
 {
     info!("Bellperson {} is being used!", BELLMAN_VERSION);
-    if let Ok(fifo) = std::env::var(FIL_PROOF_PROVE_FIFO) {
+    let is_fifo = match std::env::var(FIL_PROOF_PROVE_FIFO){
+       Ok(fifo) => fifo == "Y" || fifo == "y" || fifo == "1",
+       Err(_e) => false
+    };
+    if is_fifo {
+        log::info!("fifo mode");
         THREAD_POOL.install(|| create_proof_batch_priority_fifo(circuits, params, r_s, s_s, priority))
     }
     else{
+        log::info!("origin mode");
         THREAD_POOL.install(|| create_proof_batch_priority_inner(circuits, params, r_s, s_s, priority))
     }
 
