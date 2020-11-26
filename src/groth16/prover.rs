@@ -677,7 +677,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                     let p = arc_params.clone();
                     sp.spawn_fifo(move |_|{
 
-                        // (*C2_CPU_CIRCUIT).get();
+                        (*C2_CPU_CIRCUIT).get();
                         info!("--------------------circuit synthesize...--------------------");
                         let now = std::time::Instant::now();
 
@@ -693,7 +693,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         info!("--------------------circuit synthesized: {} s --------------------",now.elapsed().as_secs());
 
                         sender.send((prover,r,s,p)).unwrap();
-                        // (*C2_CPU_CIRCUIT).put();
+                        (*C2_CPU_CIRCUIT).put();
                     });
                 });
 
