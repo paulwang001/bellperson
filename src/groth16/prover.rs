@@ -23,7 +23,7 @@ use lazy_static::{*};
 use std::env;
 use mempool::Semphore;
 
-const FIL_PROOF_PROVE_FIFO:&str = "FIL_PROOF_PROVE_FIFO";
+
 
 lazy_static!(
 
@@ -314,11 +314,8 @@ where
     C: Circuit<E> + Send,
 {
     info!("Bellperson {} is being used!", BELLMAN_VERSION);
-    let is_fifo = match std::env::var(FIL_PROOF_PROVE_FIFO){
-       Ok(fifo) => fifo == "Y" || fifo == "y" || fifo == "1",
-       Err(_e) => false
-    };
-    if is_fifo {
+    let mode_fifo = crate::gpu::prove_mode();
+    if mode_fifo == "Y" || mode_fifo == "y" || mode_fifo == "1" || mode_fifo == "2"  {
         log::info!("fifo mode");
         THREAD_POOL.install(|| create_proof_batch_priority_fifo(circuits, params, r_s, s_s, priority))
     }
@@ -680,7 +677,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                     let p = arc_params.clone();
                     sp.spawn_fifo(move |_|{
 
-                        (*C2_CPU_CIRCUIT).get();
+                        // (*C2_CPU_CIRCUIT).get();
                         info!("--------------------circuit synthesize...--------------------");
                         let now = std::time::Instant::now();
 
@@ -696,7 +693,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         info!("--------------------circuit synthesized: {} s --------------------",now.elapsed().as_secs());
 
                         sender.send((prover,r,s,p)).unwrap();
-                        (*C2_CPU_CIRCUIT).put();
+                        // (*C2_CPU_CIRCUIT).put();
                     });
                 });
 

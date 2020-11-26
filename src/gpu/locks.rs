@@ -8,7 +8,7 @@ use lazy_static::lazy_static;
 
 const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
 const PRIORITY_LOCK_NAME: &str = "bellman.priority.lock";
-
+const FIL_PROOF_PROVE_FIFO:&str = "FIL_PROOF_PROVE_FIFO";
 #[derive(Debug,Copy,Clone)]
 pub struct LockDevice(u32,u8);
 
@@ -82,7 +82,15 @@ pub fn get_one_device_and_lock(retry:u32) ->Option<opencl::Device>{
     })
 }
 
-pub fn get_all_device_and_lock(retry:u32)->Vec<u32> {
+
+pub fn prove_mode()-> String{
+    match std::env::var(FIL_PROOF_PROVE_FIFO){
+        Ok(mode) => mode,
+        Err(_e) => "n".to_owned()
+    }
+}
+
+pub fn get_all_device_and_lock(count:u8,retry:u32)->Vec<u32> {
 
     let unlocked = {
         let lockable_device = LOCKABLE_DEVICES.clone();
@@ -96,6 +104,9 @@ pub fn get_all_device_and_lock(retry:u32)->Vec<u32> {
         for (i,x) in lockable.iter().enumerate() {
             if unlocked.contains(&x.0) {
                 v_idx.push((x.0,i));
+                if count > 0 && v_idx.len() >= count as usize {
+                    break;
+                }
             }
         }
     }
@@ -107,7 +118,7 @@ pub fn get_all_device_and_lock(retry:u32)->Vec<u32> {
             log::trace!("get gpu retry.{}",retry);
         }
         std::thread::sleep(Duration::from_secs(3));
-        return get_all_device_and_lock(retry-1);
+        return get_all_device_and_lock(count,retry-1);
     }
     for (id,i) in v_idx {
         let lockable_device = LOCKABLE_DEVICES.clone();
