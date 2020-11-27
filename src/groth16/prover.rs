@@ -931,7 +931,12 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                                  input_assignment_len
                              )) = proof_rx.recv() {
                     let vk = params.get_vk(input_assignment_len).unwrap();
-
+                    if vk.delta_g1.is_zero() || vk.delta_g2.is_zero() {
+                        // If this element is zero, someone is trying to perform a
+                        // subversion-CRS attack.
+                        log::warn!("-------------g1 is zero or g2 is zero----------------");
+                        continue;
+                    }
                     let mut g_a = vk.delta_g1.mul(r);
                     g_a.add_assign_mixed(&vk.alpha_g1);
                     let mut g_b = vk.delta_g2.mul(s);
