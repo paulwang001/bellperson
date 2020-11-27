@@ -4,6 +4,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc,Mutex};
 use rust_gpu_tools::*;
+use std::convert::From;
 use lazy_static::lazy_static;
 
 const GPU_LOCK_NAME: &str = "bellman.gpu.lock";
@@ -194,6 +195,25 @@ impl GPULock {
         debug!("GPU lock acquired!I-{}",index);
         GPULock(f,index)
     }
+
+    ///
+    pub fn lock_count(name:&str) -> GPULock {
+        let mut size = match std::env::var(format!("FIL_LOCK_{}",name.to_uppercase())){
+            Ok(c) => c.parse().unwrap_or(3),
+            Err(e) => {
+                3
+            }
+        };
+
+        for x in 0..size {
+            let f = File::create(tmp_path(format!("{}.count_{}",name,x).as_str())).unwrap();
+            if let Ok(_) = f.try_lock_exclusive() {
+                return GPULock(f,x)
+            }
+        }
+        std::thread::sleep(Duration::from_secs(5));
+        Self::lock_count(name)
+    }
 }
 impl Drop for GPULock {
     fn drop(&mut self) {
@@ -288,6 +308,7 @@ use crate::multiexp::create_multiexp_kernel;
 use std::collections::HashMap;
 use rand::{RngCore, Rng};
 use std::time::Duration;
+use std::str::FromStr;
 
 macro_rules! locked_kernel {
     ($class:ident, $kern:ident, $func:ident, $name:expr) => {
