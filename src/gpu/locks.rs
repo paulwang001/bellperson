@@ -196,12 +196,12 @@ impl GPULock {
         GPULock(f,index)
     }
 
-    ///
+    ///get count lock
     pub fn lock_count(name:&str) -> GPULock {
-        let mut size = match std::env::var(format!("FIL_LOCK_{}",name.to_uppercase())){
-            Ok(c) => c.parse().unwrap_or(3),
+        let mut size = match std::env::var(format!("FIL_PROOFS_LOCK_{}",name.to_uppercase())){
+            Ok(c) => c.parse().unwrap_or(6),
             Err(e) => {
-                3
+                6
             }
         };
 
