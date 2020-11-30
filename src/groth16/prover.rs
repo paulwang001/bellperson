@@ -296,11 +296,11 @@ where
     C: Circuit<E> + Send,
     R: RngCore,
 {
-    let r_s = (0..circuits.len()).map(|_| E::Fr::random(rng)).collect();
-    let s_s = (0..circuits.len()).map(|_| E::Fr::random(rng)).collect();
+    // let r_s = (0..circuits.len()).map(|_| E::Fr::random(rng)).collect();
+    // let s_s = (0..circuits.len()).map(|_| E::Fr::random(rng)).collect();
 
-    // let r_s = (0..circuits.len()).map(|_| E::Fr::one()).collect();
-    // let s_s = (0..circuits.len()).map(|_| E::Fr::zero()).collect();
+    let r_s = (0..circuits.len()).map(|_| E::Fr::one()).collect();
+    let s_s = (0..circuits.len()).map(|_| E::Fr::zero()).collect();
 
     create_proof_batch_priority::<E, C, P>(circuits, params, r_s, s_s, priority)
 }
@@ -622,12 +622,16 @@ where
                     g_c.add_assign(&b1_answer);
                     g_c.add_assign(&h.wait()?);
                     g_c.add_assign(&l.wait()?);
-
-                    Ok(Proof {
+                    let p = Proof {
                         a: g_a.into_affine(),
                         b: g_b.into_affine(),
                         c: g_c.into_affine(),
-                    })
+                    };
+                    let mut out = vec![];
+                    p.write(&mut out).unwrap();
+                    let out = hex::encode(out);
+                    log::debug!("my proof:{}",out);
+                    Ok(p)
                 },
             )
             .collect::<Result<Vec<_>, SynthesisError>>()?;
@@ -969,12 +973,18 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                     g_c.add_assign(&b1_answer);
                     g_c.add_assign(&h.wait().unwrap());
                     g_c.add_assign(&l.wait().unwrap());
-                    let mut pfs = rx_proofs.lock().unwrap();
-                    pfs.push(Proof::<E> {
+
+                    let p = Proof::<E> {
                         a: g_a.into_affine(),
                         b: g_b.into_affine(),
                         c: g_c.into_affine(),
-                    });
+                    };
+                    let mut out = vec![];
+                    p.write(&mut out).unwrap();
+                    let out = hex::encode(out);
+                    log::debug!("my proof fifo:{}",out);
+                    let mut pfs = rx_proofs.lock().unwrap();
+                    pfs.push(p);
                     trace!("=========== proof finished ===========");
                 }
             });
