@@ -102,7 +102,9 @@ pub fn try_one_device(retry:u32) -> Option<(opencl::Device,File)> {
         }
     });
     if last_free.is_none(){
-        log::trace!("GPU wait...");
+        if retry % 60 == 0 {
+            log::trace!("GPU wait...");
+        }
         std::thread::sleep(Duration::from_secs(1));
         if retry < 2 {
             return None;
