@@ -296,11 +296,11 @@ where
     C: Circuit<E> + Send,
     R: RngCore,
 {
-    // let r_s = (0..circuits.len()).map(|_| E::Fr::random(rng)).collect();
-    // let s_s = (0..circuits.len()).map(|_| E::Fr::random(rng)).collect();
+    let r_s = (0..circuits.len()).map(|_| E::Fr::random(rng)).collect();
+    let s_s = (0..circuits.len()).map(|_| E::Fr::random(rng)).collect();
 
-    let r_s = (0..circuits.len()).map(|_| E::Fr::one()).collect();
-    let s_s = (0..circuits.len()).map(|_| E::Fr::zero()).collect();
+    // let r_s = (0..circuits.len()).map(|_| E::Fr::one()).collect();
+    // let s_s = (0..circuits.len()).map(|_| E::Fr::zero()).collect();
 
     create_proof_batch_priority::<E, C, P>(circuits, params, r_s, s_s, priority)
 }
