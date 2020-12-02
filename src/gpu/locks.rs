@@ -199,11 +199,11 @@ impl GPULock {
     }
 
     ///get count lock
-    pub fn lock_count(name:&str) -> GPULock {
+    pub fn lock_count_default(name:&str,count:u8) -> GPULock {
         let mut size = match std::env::var(format!("FIL_PROOFS_LOCK_{}",name.to_uppercase())){
-            Ok(c) => c.parse().unwrap_or(6),
+            Ok(c) => c.parse().unwrap_or(count),
             Err(e) => {
-                6
+                count
             }
         };
 
@@ -213,8 +213,12 @@ impl GPULock {
                 return GPULock(f,x)
             }
         }
-        std::thread::sleep(Duration::from_secs(5));
-        Self::lock_count(name)
+        std::thread::sleep(Duration::from_secs(1));
+        Self::lock_count_default(name,count)
+    }
+
+    pub fn lock_count(name:&str) -> GPULock {
+        Self::lock_count_default(name,6)
     }
 }
 impl Drop for GPULock {

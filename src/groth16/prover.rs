@@ -658,84 +658,84 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
 
     info!("create_proof_batch_priority_fifo-------------------start...");
     let task_now = std::time::Instant::now();
-    (*C2_CPU_TASKS).get();
     let worker = Worker::new();
-
     let proofs =
     circuits
     .into_par_iter()
     .zip(r_s.into_par_iter())
     .zip(s_s.into_par_iter())
     .map(|((circuit,r),s)| {
-        (*C2_CPU_CIRCUIT).get();
+
         info!("--------------------circuit synthesize...--------------------");
-        let now = std::time::Instant::now();
-
         let mut prover = ProvingAssignment::new();
+        {
+            let _lock = crate::gpu::GPULock::lock_count_default("CC", 1);
+            let now = std::time::Instant::now();
 
-        prover.alloc_input(|| "", || Ok(E::Fr::one())).unwrap();
+            prover.alloc_input(|| "", || Ok(E::Fr::one())).unwrap();
 
-        circuit.synthesize(&mut prover).unwrap();
+            circuit.synthesize(&mut prover).unwrap();
 
-        for i in 0..prover.input_assignment.len() {
-            prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
+            for i in 0..prover.input_assignment.len() {
+                prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
+            }
+            info!("--------------------circuit synthesized: {} s --------------------", now.elapsed().as_secs());
         }
-        info!("--------------------circuit synthesized: {} s --------------------",now.elapsed().as_secs());
         let mut n = 0;
         let mut log_d = 0;
         n = prover.a.len();
         while (1 << log_d) < n {
             log_d += 1;
         }
-
         info!("prover FFT:{}",n);
 
-        let mut a =
-            EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.a, Vec::new())).unwrap();
+        let aa = {
+            let mut a =
+                EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.a, Vec::new())).unwrap();
 
-        let mut b =
-            EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.b, Vec::new())).unwrap();
+            let mut b =
+                EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.b, Vec::new())).unwrap();
 
-        let mut c =
-            EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.c, Vec::new())).unwrap();
+            let mut c =
+                EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.c, Vec::new())).unwrap();
 
-        let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
-        let now = std::time::Instant::now();
-        a.ifft(&worker, &mut fft_kern).unwrap();
-        a.coset_fft(&worker, &mut fft_kern).unwrap();
+            let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
+            let now = std::time::Instant::now();
+            a.ifft(&worker, &mut fft_kern).unwrap();
+            a.coset_fft(&worker, &mut fft_kern).unwrap();
 
-        b.ifft(&worker, &mut fft_kern).unwrap();
-        b.coset_fft(&worker, &mut fft_kern).unwrap();
+            b.ifft(&worker, &mut fft_kern).unwrap();
+            b.coset_fft(&worker, &mut fft_kern).unwrap();
 
-        c.ifft(&worker, &mut fft_kern).unwrap();
-        c.coset_fft(&worker, &mut fft_kern).unwrap();
+            c.ifft(&worker, &mut fft_kern).unwrap();
+            c.coset_fft(&worker, &mut fft_kern).unwrap();
 
-        a.mul_assign(&worker, &b);
-        drop(b);
-        a.sub_assign(&worker, &c);
-        drop(c);
-        a.divide_by_z_on_coset(&worker);
-        {
-            a.icoset_fft(&worker, &mut fft_kern).unwrap();
-        }
-        let mut a = a.into_coeffs();
-        let a_len = a.len() - 1;
-        a.truncate(a_len);
-
-        let a = Arc::new(
-            a.into_iter().map(|s| s.0.into_repr()).collect::<Vec<_>>(),
-        );
-        drop(fft_kern);
-        info!("--------------------prover FFT finished, use: {} s --------------------",now.elapsed().as_secs());
+            a.mul_assign(&worker, &b);
+            drop(b);
+            a.sub_assign(&worker, &c);
+            drop(c);
+            a.divide_by_z_on_coset(&worker);
+            {
+                a.icoset_fft(&worker, &mut fft_kern).unwrap();
+            }
+            let mut a = a.into_coeffs();
+            let a_len = a.len() - 1;
+            a.truncate(a_len);
+            drop(fft_kern);
+            info!("--------------------prover FFT finished, use: {} s --------------------",now.elapsed().as_secs());
+            Arc::new(
+                a.into_iter().map(|s| s.0.into_repr()).collect::<Vec<_>>(),
+            )
+        };
 
         let mut multiexp_kern = Some(LockedMultiexpKernel::<E>::new(log_d, priority));
         let now = std::time::Instant::now();
         trace!("--------------------prover mutilexp start-------------------------");
         let h = multiexp(
             &worker,
-            params.get_h(a.len()).expect("get h failed"),
+            params.get_h(aa.len()).expect("get h failed"),
             FullDensity,
-            a,
+            aa,
             &mut multiexp_kern,
         );
 
@@ -775,6 +775,8 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
             a_input_assignment.clone(),
             &mut multiexp_kern,
         );
+
+        let input_len = prover.input_assignment.len();
         let a_aux = multiexp(
             &worker,
             a_aux_source,
@@ -782,6 +784,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
             a_aux_assignment.clone(),
             &mut multiexp_kern,
         );
+
         let b_input_density = Arc::new(prover.b_input_density);
         let b_input_density_total = b_input_density.get_total_density();
         let b_aux_density = Arc::new(prover.b_aux_density);
@@ -824,8 +827,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
         );
         drop(multiexp_kern);
         info!("--------------------prover mutilexp finished. use:{} s --------------------",now.elapsed().as_secs());
-        // let vk = ovk.unwrap();
-        let input_len = prover.input_assignment.len();
+        // drop(a_input_assignment);
         let vk = params.get_vk(input_len).unwrap();
         if vk.delta_g1.is_zero() || vk.delta_g2.is_zero() {
             // If this element is zero, someone is trying to perform a
@@ -870,14 +872,17 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
             b: g_b.into_affine(),
             c: g_c.into_affine(),
         };
+        drop(g_a);
+        drop(g_b);
+        drop(g_c);
         let mut out = vec![];
         p.write(&mut out).unwrap();
         let out = hex::encode(out);
         log::debug!("my proof fifo:{}",out);
+        drop(out);
         Ok(p)
     }).collect::<Result<Vec<_>, SynthesisError>>()?;
     trace!("~~~~~~~~~~~~~~~~proofs total time:{} min~~~~~~~~~~~~~~~~~",task_now.elapsed().as_secs_f32()/60.0);
-    (*C2_CPU_TASKS).put();
     Ok(proofs)
     // rayon::scope_fifo(|sp|{
     //     info!("create_proof_batch_priority_fifo-------------------start...");
