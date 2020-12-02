@@ -656,265 +656,257 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
         C: Circuit<E> + Send,
 {
 
-    rayon::scope_fifo(|sp|{
-        info!("create_proof_batch_priority_fifo-------------------start...");
-        let task_now = std::time::Instant::now();
-        (*C2_CPU_TASKS).get();
-        // let pool = ThreadPoolBuilder::new().create().unwrap();
+    info!("create_proof_batch_priority_fifo-------------------start...");
+    let task_now = std::time::Instant::now();
+    (*C2_CPU_TASKS).get();
+    let worker = Worker::new();
 
-        info!("synthesize circuit start");
-        info!("------------------gpu locked-------------");
-        let (tx,rx) = sync_channel(0);
-        circuits
-            .into_iter()
-            .for_each(|circuit| {
-                let sender = tx.clone();
-                sp.spawn_fifo(move |_|{
+    let proofs =
+    circuits
+    .into_par_iter()
+    .zip(r_s.into_par_iter())
+    .zip(s_s.into_par_iter())
+    .map(|((circuit,r),s)| {
+        (*C2_CPU_CIRCUIT).get();
+        info!("--------------------circuit synthesize...--------------------");
+        let now = std::time::Instant::now();
 
-                    (*C2_CPU_CIRCUIT).get();
-                    info!("--------------------circuit synthesize...--------------------");
-                    let now = std::time::Instant::now();
+        let mut prover = ProvingAssignment::new();
 
-                    let mut prover = ProvingAssignment::new();
+        prover.alloc_input(|| "", || Ok(E::Fr::one())).unwrap();
 
-                    prover.alloc_input(|| "", || Ok(E::Fr::one())).unwrap();
+        circuit.synthesize(&mut prover).unwrap();
 
-                    circuit.synthesize(&mut prover).unwrap();
-
-                    for i in 0..prover.input_assignment.len() {
-                        prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
-                    }
-                    info!("--------------------circuit synthesized: {} s --------------------",now.elapsed().as_secs());
-
-                    sender.send(prover).unwrap();
-                    (*C2_CPU_CIRCUIT).put();
-                });
-            });
-            drop(tx);
-            let worker = Worker::new();
-            let mut n = 0;
-            let mut log_d = 0;
-            let mut input_len = 0 ;
-            let mut ovk = None;
-            let mut ret = Ok(vec![]);
-            let mut itr_rs = r_s.into_iter();
-            let mut itr_ss = s_s.into_iter();
-            let mut proofs = vec![];
-            while let Ok(mut prover) = rx.recv() {
-                if ovk.is_none() {
-                    n = prover.a.len();
-                    while (1 << log_d) < n {
-                        log_d += 1;
-                    }
-                    input_len = prover.input_assignment.len();
-                    let vk = params.get_vk(input_len).unwrap();
-                    if vk.delta_g1.is_zero() || vk.delta_g2.is_zero() {
-                        // If this element is zero, someone is trying to perform a
-                        // subversion-CRS attack.
-                        ret = Err(SynthesisError::UnexpectedIdentity);
-                        break;
-                    }
-                    ovk = Some(vk);
-                    trace!("--------------------prover FFT start, logd:{}--------------------",log_d);
-                }
-                else{
-                    assert_eq!(
-                        prover.a.len(),
-                        n,
-                        "only equaly sized circuits are supported"
-                    );
-                }
-                info!("prover FFT:{}",n);
-
-                let mut a =
-                    EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.a, Vec::new())).unwrap();
-
-                let mut b =
-                    EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.b, Vec::new())).unwrap();
-
-                let mut c =
-                    EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.c, Vec::new())).unwrap();
-
-                let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
-                let now = std::time::Instant::now();
-                a.ifft(&worker, &mut fft_kern).unwrap();
-                a.coset_fft(&worker, &mut fft_kern).unwrap();
-
-                b.ifft(&worker, &mut fft_kern).unwrap();
-                b.coset_fft(&worker, &mut fft_kern).unwrap();
-
-                c.ifft(&worker, &mut fft_kern).unwrap();
-                c.coset_fft(&worker, &mut fft_kern).unwrap();
-
-                a.mul_assign(&worker, &b);
-                drop(b);
-                a.sub_assign(&worker, &c);
-                drop(c);
-                a.divide_by_z_on_coset(&worker);
-                {
-                    a.icoset_fft(&worker, &mut fft_kern).unwrap();
-                }
-                let mut a = a.into_coeffs();
-                let a_len = a.len() - 1;
-                a.truncate(a_len);
-
-                let a = Arc::new(
-                    a.into_iter().map(|s| s.0.into_repr()).collect::<Vec<_>>(),
-                );
-                drop(fft_kern);
-                info!("--------------------prover FFT finished, use: {} s --------------------",now.elapsed().as_secs());
-
-                let mut multiexp_kern = Some(LockedMultiexpKernel::<E>::new(log_d, priority));
-                let now = std::time::Instant::now();
-                trace!("--------------------prover mutilexp start-------------------------");
-                let h = multiexp(
-                    &worker,
-                    params.get_h(a.len()).expect("get h failed"),
-                    FullDensity,
-                    a,
-                    &mut multiexp_kern,
-                );
-
-                let input_assignment = std::mem::replace(&mut prover.input_assignment, Vec::new());
-                let a_input_assignment = Arc::new(
-                    input_assignment
-                        .into_iter()
-                        .map(|s| s.into_repr())
-                        .collect::<Vec<_>>(),
-                );
-
-                let aux_assignment = std::mem::replace(&mut prover.aux_assignment, Vec::new());
-                let a_aux_assignment= Arc::new(
-                    aux_assignment
-                        .into_iter()
-                        .map(|s| s.into_repr())
-                        .collect::<Vec<_>>()
-                );
-
-                let l = multiexp(
-                    &worker,
-                    params.get_l(a_aux_assignment.len()).unwrap(),
-                    FullDensity,
-                    a_aux_assignment.clone(),
-                    &mut multiexp_kern,
-                );
-
-                let a_aux_density_total = prover.a_aux_density.get_total_density();
-
-                let (a_inputs_source, a_aux_source) =
-                    params.get_a(a_input_assignment.len(), a_aux_density_total).unwrap();
-
-                let a_inputs = multiexp(
-                    &worker,
-                    a_inputs_source,
-                    FullDensity,
-                    a_input_assignment.clone(),
-                    &mut multiexp_kern,
-                );
-                let a_aux = multiexp(
-                    &worker,
-                    a_aux_source,
-                    Arc::new(prover.a_aux_density),
-                    a_aux_assignment.clone(),
-                    &mut multiexp_kern,
-                );
-                let b_input_density = Arc::new(prover.b_input_density);
-                let b_input_density_total = b_input_density.get_total_density();
-                let b_aux_density = Arc::new(prover.b_aux_density);
-                let b_aux_density_total = b_aux_density.get_total_density();
-
-                let (b_g1_inputs_source, b_g1_aux_source) =
-                    params.get_b_g1(b_input_density_total, b_aux_density_total).unwrap();
-
-                let b_g1_inputs = multiexp(
-                    &worker,
-                    b_g1_inputs_source,
-                    b_input_density.clone(),
-                    a_input_assignment.clone(),
-                    &mut multiexp_kern,
-                );
-
-                let b_g1_aux = multiexp(
-                    &worker,
-                    b_g1_aux_source,
-                    b_aux_density.clone(),
-                    a_aux_assignment.clone(),
-                    &mut multiexp_kern,
-                );
-
-                let (b_g2_inputs_source, b_g2_aux_source) =
-                    params.get_b_g2(b_input_density_total, b_aux_density_total).unwrap();
-                let b_g2_inputs = multiexp(
-                    &worker,
-                    b_g2_inputs_source,
-                    b_input_density,
-                    a_input_assignment.clone(),
-                    &mut multiexp_kern,
-                );
-                let b_g2_aux = multiexp(
-                    &worker,
-                    b_g2_aux_source,
-                    b_aux_density,
-                    a_aux_assignment.clone(),
-                    &mut multiexp_kern,
-                );
-                drop(multiexp_kern);
-                info!("--------------------prover mutilexp finished. use:{} s --------------------",now.elapsed().as_secs());
-                let vk = ovk.unwrap();
-                let r = itr_rs.next().unwrap();
-                let s = itr_ss.next().unwrap();
-                let mut g_a = vk.delta_g1.mul(r);
-                g_a.add_assign_mixed(&vk.alpha_g1);
-                let mut g_b = vk.delta_g2.mul(s);
-                g_b.add_assign_mixed(&vk.beta_g2);
-                let mut g_c;
-                {
-                    let mut rs = r;
-                    rs.mul_assign(&s);
-
-                    g_c = vk.delta_g1.mul(rs);
-                    g_c.add_assign(&vk.alpha_g1.mul(s));
-                    g_c.add_assign(&vk.beta_g1.mul(r));
-                }
-                //   trace!("=========== a answer ....");
-                let mut a_answer = a_inputs.wait().unwrap();
-                a_answer.add_assign(&a_aux.wait().unwrap());
-                g_a.add_assign(&a_answer);
-                a_answer.mul_assign(s);
-                g_c.add_assign(&a_answer);
-
-                let mut b1_answer = b_g1_inputs.wait().unwrap();
-                b1_answer.add_assign(&b_g1_aux.wait().unwrap());
-                let mut b2_answer = b_g2_inputs.wait().unwrap();
-                b2_answer.add_assign(&b_g2_aux.wait().unwrap());
-
-                g_b.add_assign(&b2_answer);
-                b1_answer.mul_assign(r);
-
-                // trace!("=========== creating c ....");
-                g_c.add_assign(&b1_answer);
-                g_c.add_assign(&h.wait().unwrap());
-                g_c.add_assign(&l.wait().unwrap());
-
-                let p = Proof {
-                    a: g_a.into_affine(),
-                    b: g_b.into_affine(),
-                    c: g_c.into_affine(),
-                };
-                let mut out = vec![];
-                p.write(&mut out).unwrap();
-                let out = hex::encode(out);
-                log::debug!("my proof fifo:{}",out);
-                proofs.push(p);
-            }
-
-        if ret.is_ok() && !proofs.is_empty() {
-            ret = Ok(proofs);
+        for i in 0..prover.input_assignment.len() {
+            prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
         }
-        trace!("~~~~~~~~~~~~~~~~proofs total time:{} min~~~~~~~~~~~~~~~~~",task_now.elapsed().as_secs_f32()/60.0);
-        (*C2_CPU_TASKS).put();
-        ret
-    })
+        info!("--------------------circuit synthesized: {} s --------------------",now.elapsed().as_secs());
+        let mut n = 0;
+        let mut log_d = 0;
+        n = prover.a.len();
+        while (1 << log_d) < n {
+            log_d += 1;
+        }
+
+        info!("prover FFT:{}",n);
+
+        let mut a =
+            EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.a, Vec::new())).unwrap();
+
+        let mut b =
+            EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.b, Vec::new())).unwrap();
+
+        let mut c =
+            EvaluationDomain::from_coeffs(std::mem::replace(&mut prover.c, Vec::new())).unwrap();
+
+        let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
+        let now = std::time::Instant::now();
+        a.ifft(&worker, &mut fft_kern).unwrap();
+        a.coset_fft(&worker, &mut fft_kern).unwrap();
+
+        b.ifft(&worker, &mut fft_kern).unwrap();
+        b.coset_fft(&worker, &mut fft_kern).unwrap();
+
+        c.ifft(&worker, &mut fft_kern).unwrap();
+        c.coset_fft(&worker, &mut fft_kern).unwrap();
+
+        a.mul_assign(&worker, &b);
+        drop(b);
+        a.sub_assign(&worker, &c);
+        drop(c);
+        a.divide_by_z_on_coset(&worker);
+        {
+            a.icoset_fft(&worker, &mut fft_kern).unwrap();
+        }
+        let mut a = a.into_coeffs();
+        let a_len = a.len() - 1;
+        a.truncate(a_len);
+
+        let a = Arc::new(
+            a.into_iter().map(|s| s.0.into_repr()).collect::<Vec<_>>(),
+        );
+        drop(fft_kern);
+        info!("--------------------prover FFT finished, use: {} s --------------------",now.elapsed().as_secs());
+
+        let mut multiexp_kern = Some(LockedMultiexpKernel::<E>::new(log_d, priority));
+        let now = std::time::Instant::now();
+        trace!("--------------------prover mutilexp start-------------------------");
+        let h = multiexp(
+            &worker,
+            params.get_h(a.len()).expect("get h failed"),
+            FullDensity,
+            a,
+            &mut multiexp_kern,
+        );
+
+        let input_assignment = std::mem::replace(&mut prover.input_assignment, Vec::new());
+        let a_input_assignment = Arc::new(
+            input_assignment
+                .into_iter()
+                .map(|s| s.into_repr())
+                .collect::<Vec<_>>(),
+        );
+
+        let aux_assignment = std::mem::replace(&mut prover.aux_assignment, Vec::new());
+        let a_aux_assignment= Arc::new(
+            aux_assignment
+                .into_iter()
+                .map(|s| s.into_repr())
+                .collect::<Vec<_>>()
+        );
+
+        let l = multiexp(
+            &worker,
+            params.get_l(a_aux_assignment.len()).unwrap(),
+            FullDensity,
+            a_aux_assignment.clone(),
+            &mut multiexp_kern,
+        );
+
+        let a_aux_density_total = prover.a_aux_density.get_total_density();
+
+        let (a_inputs_source, a_aux_source) =
+            params.get_a(a_input_assignment.len(), a_aux_density_total).unwrap();
+
+        let a_inputs = multiexp(
+            &worker,
+            a_inputs_source,
+            FullDensity,
+            a_input_assignment.clone(),
+            &mut multiexp_kern,
+        );
+        let a_aux = multiexp(
+            &worker,
+            a_aux_source,
+            Arc::new(prover.a_aux_density),
+            a_aux_assignment.clone(),
+            &mut multiexp_kern,
+        );
+        let b_input_density = Arc::new(prover.b_input_density);
+        let b_input_density_total = b_input_density.get_total_density();
+        let b_aux_density = Arc::new(prover.b_aux_density);
+        let b_aux_density_total = b_aux_density.get_total_density();
+
+        let (b_g1_inputs_source, b_g1_aux_source) =
+            params.get_b_g1(b_input_density_total, b_aux_density_total).unwrap();
+
+        let b_g1_inputs = multiexp(
+            &worker,
+            b_g1_inputs_source,
+            b_input_density.clone(),
+            a_input_assignment.clone(),
+            &mut multiexp_kern,
+        );
+
+        let b_g1_aux = multiexp(
+            &worker,
+            b_g1_aux_source,
+            b_aux_density.clone(),
+            a_aux_assignment.clone(),
+            &mut multiexp_kern,
+        );
+
+        let (b_g2_inputs_source, b_g2_aux_source) =
+            params.get_b_g2(b_input_density_total, b_aux_density_total).unwrap();
+        let b_g2_inputs = multiexp(
+            &worker,
+            b_g2_inputs_source,
+            b_input_density,
+            a_input_assignment.clone(),
+            &mut multiexp_kern,
+        );
+        let b_g2_aux = multiexp(
+            &worker,
+            b_g2_aux_source,
+            b_aux_density,
+            a_aux_assignment.clone(),
+            &mut multiexp_kern,
+        );
+        drop(multiexp_kern);
+        info!("--------------------prover mutilexp finished. use:{} s --------------------",now.elapsed().as_secs());
+        // let vk = ovk.unwrap();
+        let input_len = prover.input_assignment.len();
+        let vk = params.get_vk(input_len).unwrap();
+        if vk.delta_g1.is_zero() || vk.delta_g2.is_zero() {
+            // If this element is zero, someone is trying to perform a
+            // subversion-CRS attack.
+            return Err(SynthesisError::UnexpectedIdentity);
+        }
+        let mut g_a = vk.delta_g1.mul(r);
+        g_a.add_assign_mixed(&vk.alpha_g1);
+        let mut g_b = vk.delta_g2.mul(s);
+        g_b.add_assign_mixed(&vk.beta_g2);
+        let mut g_c;
+        {
+            let mut rs = r;
+            rs.mul_assign(&s);
+
+            g_c = vk.delta_g1.mul(rs);
+            g_c.add_assign(&vk.alpha_g1.mul(s));
+            g_c.add_assign(&vk.beta_g1.mul(r));
+        }
+        //   trace!("=========== a answer ....");
+        let mut a_answer = a_inputs.wait().unwrap();
+        a_answer.add_assign(&a_aux.wait().unwrap());
+        g_a.add_assign(&a_answer);
+        a_answer.mul_assign(s);
+        g_c.add_assign(&a_answer);
+
+        let mut b1_answer = b_g1_inputs.wait().unwrap();
+        b1_answer.add_assign(&b_g1_aux.wait().unwrap());
+        let mut b2_answer = b_g2_inputs.wait().unwrap();
+        b2_answer.add_assign(&b_g2_aux.wait().unwrap());
+
+        g_b.add_assign(&b2_answer);
+        b1_answer.mul_assign(r);
+
+        // trace!("=========== creating c ....");
+        g_c.add_assign(&b1_answer);
+        g_c.add_assign(&h.wait().unwrap());
+        g_c.add_assign(&l.wait().unwrap());
+
+        let p = Proof {
+            a: g_a.into_affine(),
+            b: g_b.into_affine(),
+            c: g_c.into_affine(),
+        };
+        let mut out = vec![];
+        p.write(&mut out).unwrap();
+        let out = hex::encode(out);
+        log::debug!("my proof fifo:{}",out);
+        Ok(p)
+    }).collect::<Result<Vec<_>, SynthesisError>>()?;
+    trace!("~~~~~~~~~~~~~~~~proofs total time:{} min~~~~~~~~~~~~~~~~~",task_now.elapsed().as_secs_f32()/60.0);
+    (*C2_CPU_TASKS).put();
+    Ok(proofs)
+    // rayon::scope_fifo(|sp|{
+    //     info!("create_proof_batch_priority_fifo-------------------start...");
+    //     let task_now = std::time::Instant::now();
+    //     (*C2_CPU_TASKS).get();
+    //     // let pool = ThreadPoolBuilder::new().create().unwrap();
+    //
+    //     info!("synthesize circuit start");
+    //     info!("------------------gpu locked-------------");
+    //
+    //         drop(tx);
+    //         let worker = Worker::new();
+    //         let mut n = 0;
+    //         let mut log_d = 0;
+    //         let mut input_len = 0 ;
+    //         let mut ovk = None;
+    //         let mut ret = Ok(vec![]);
+    //         let mut itr_rs = r_s.into_iter();
+    //         let mut itr_ss = s_s.into_iter();
+    //         let mut proofs = vec![];
+    //
+    //
+    //     if ret.is_ok() && !proofs.is_empty() {
+    //         ret = Ok(proofs);
+    //     }
+    //     trace!("~~~~~~~~~~~~~~~~proofs total time:{} min~~~~~~~~~~~~~~~~~",task_now.elapsed().as_secs_f32()/60.0);
+    //     (*C2_CPU_TASKS).put();
+    //     ret
+    // })
 }
 
 #[cfg(test)]
