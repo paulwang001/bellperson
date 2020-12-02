@@ -666,10 +666,10 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
     .zip(s_s.into_par_iter())
     .map(|((circuit,r),s)| {
 
-        info!("--------------------circuit synthesize...--------------------");
         let mut prover = ProvingAssignment::new();
         {
             let _lock = crate::gpu::GPULock::lock_count_default("CC", 1);
+            info!("--------------------circuit synthesize...--------------------");
             let now = std::time::Instant::now();
 
             prover.alloc_input(|| "", || Ok(E::Fr::one())).unwrap();
