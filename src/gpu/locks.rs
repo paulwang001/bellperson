@@ -185,12 +185,14 @@ pub struct GPULock(File,u8);
 impl GPULock {
     pub fn lock() -> GPULock {
         debug!("Acquiring GPU lock...");
+        let _l = LOCKABLE_DEVICES.lock();
         let f = File::create(tmp_path(GPU_LOCK_NAME)).unwrap();
         f.lock_exclusive().unwrap();
         debug!("GPU lock acquired!");
         GPULock(f,u8::MAX)
     }
     pub fn lock_custom(index:u8) -> GPULock {
+        let _l = LOCKABLE_DEVICES.lock();
         debug!("Acquiring GPU lock...I-{}",index);
         let f = File::create(tmp_path(format!("{}.{}",GPU_LOCK_NAME,index).as_str())).unwrap();
         f.lock_exclusive().unwrap();
@@ -208,11 +210,13 @@ impl GPULock {
         };
 
         for x in 0..size {
+            let _l = LOCKABLE_DEVICES.lock();
             let f = File::create(tmp_path(format!("{}.count_{}",name,x).as_str())).unwrap();
             if let Ok(_) = f.try_lock_exclusive() {
                 return GPULock(f,x)
             }
         }
+        log::trace!("waiting lock {}/{}",name,count);
         std::thread::sleep(Duration::from_secs(1));
         Self::lock_count_default(name,count)
     }
