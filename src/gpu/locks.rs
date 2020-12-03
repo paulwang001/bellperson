@@ -119,7 +119,7 @@ pub fn try_one_device(retry:u32) -> Option<(opencl::Device,File)> {
 pub fn prove_mode()-> String{
     match std::env::var(FIL_PROOF_PROVE_FIFO){
         Ok(mode) => mode,
-        Err(_e) => "n".to_owned()
+        Err(_e) => "1".to_owned()
     }
 }
 
