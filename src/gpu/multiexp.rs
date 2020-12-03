@@ -221,28 +221,31 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
-        // let lock = locks::GPULock::lock();
-        // let mut count = 0;
-        // if crate::gpu::prove_mode() == "2".to_owned() {
-        //     count = 2;
-        // }
-        // else if crate::gpu::prove_mode() == "1".to_owned() {
-        //     count = 1;
-        // }
-        // let used_dev = locks::get_all_device_and_lock(count,1000);
-        // if used_dev.is_empty() {
-        //     return Err(GPUError::Simple("GPU busy?"));
-        // }
-        // let devices = opencl::Device::all_iter().filter(|d|used_dev.contains(&d.bus_id().unwrap())).collect::<Vec<_>>();
-        // // drop(lock);
-        // let lock = locks::MultiGPULock::lock(used_dev);
+        let mode = crate::gpu::prove_mode();
+        let count =
+        match mode.as_str() {
+            "y" | "Y"=> 2,
+            "n" | "N" => 1,
+            _ => mode.parse().unwrap_or(1)
+        };
         let one_dev = crate::gpu::try_one_device(1000);
         if one_dev.is_none() {
             return Err(GPUError::Simple("GPU busy?"));
         }
         let (d,l) = one_dev.unwrap();
-        let lock = locks::MultiGPULock::lock_file(l,d.bus_id().unwrap());
-        let devices = vec![d];
+        let mut lock = locks::MultiGPULock::lock_file(l,d.bus_id().unwrap());
+        let mut devices = vec![d];
+        for _x in 1..count {
+            let other_dev = crate::gpu::try_one_device(2);
+            if other_dev.is_some() {
+                let (d2,l2) = other_dev.unwrap();
+                lock.append_lock(l2,d2.bus_id().unwrap());
+                devices.push(d2);
+            }
+            else{
+                break;
+            }
+        }
         let kernels: Vec<_> = devices
             .into_iter()
             .map(|d| (d.clone(), SingleMultiexpKernel::<E>::create(d.clone(), priority)))

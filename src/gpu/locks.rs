@@ -263,6 +263,10 @@ impl MultiGPULock {
         MultiGPULock(v_file)
     }
 
+    pub fn append_lock(&mut self,lock:File,id:u32) {
+       self.0.push((lock,id));
+    }
+
 }
 impl Drop for MultiGPULock {
     fn drop(&mut self) {

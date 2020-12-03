@@ -317,7 +317,7 @@ where
 {
     info!("Bellperson {} is being used!", BELLMAN_VERSION);
     let mode_fifo = crate::gpu::prove_mode();
-    if mode_fifo == "Y" || mode_fifo == "y" || mode_fifo == "1" || mode_fifo == "2"  {
+    if mode_fifo.to_uppercase() != "N"  {
         log::info!("fifo mode");
         THREAD_POOL.install(|| create_proof_batch_priority_fifo(circuits, params, r_s, s_s, priority))
     }
