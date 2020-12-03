@@ -667,7 +667,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
     .zip(s_s.into_par_iter())
     .map(|((circuit,r),s)| {
 
-        let lock = crate::gpu::GPULock::lock_count_default("CC", u8::MAX);
+
         let mut prover = ProvingAssignment::new();
         {
             let name =format!("FIFO-{}",fifo_id);
@@ -685,6 +685,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
             }
             info!("--------------------circuit synthesized: {} s --------------------", now.elapsed().as_secs());
         }
+        let lock = crate::gpu::GPULock::lock_count_default("CC", u8::MAX);
         let mut n = 0;
         let mut log_d = 0;
         n = prover.a.len();
