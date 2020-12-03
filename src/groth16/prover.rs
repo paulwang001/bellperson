@@ -658,6 +658,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
 
     info!("create_proof_batch_priority_fifo-------------------start...");
     let task_now = std::time::Instant::now();
+    let fifo_id = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
     let worker = Worker::new();
     let proofs =
     circuits
@@ -666,10 +667,13 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
     .zip(s_s.into_par_iter())
     .map(|((circuit,r),s)| {
 
+        let lock = crate::gpu::GPULock::lock_count_default("CC", u8::MAX);
         let mut prover = ProvingAssignment::new();
         {
-            let _lock = crate::gpu::GPULock::lock_count_default("CC", 1);
-            info!("--------------------circuit synthesize...--------------------");
+            let name =format!("FIFO-{}",fifo_id);
+
+            let _l = crate::gpu::GPULock::lock_count_default(name.as_str(),1);
+            info!("--------------------circuit synthesize[{}]--------------------",name);
             let now = std::time::Instant::now();
 
             prover.alloc_input(|| "", || Ok(E::Fr::one())).unwrap();
@@ -880,6 +884,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
         let out = hex::encode(out);
         log::debug!("my proof fifo:{}",out);
         drop(out);
+        drop(lock);
         Ok(p)
     }).collect::<Result<Vec<_>, SynthesisError>>()?;
     trace!("~~~~~~~~~~~~~~~~proofs total time:{} min~~~~~~~~~~~~~~~~~",task_now.elapsed().as_secs_f32()/60.0);
