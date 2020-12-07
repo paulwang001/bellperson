@@ -671,8 +671,11 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                     let mut prover = ProvingAssignment::new();
                     {
                         let name = format!("FIFO-{}", fifo_id);
-
-                        let _l = crate::gpu::GPULock::lock_count_default(name.as_str(), 1);
+                        let mut cpu_count = 1;
+                        if let Ok(c) = std::env::var("FIL_PROOFS_CPU_COUNT"){
+                            cpu_count = c.parse().unwrap_or(1);
+                        }
+                        let _l = crate::gpu::GPULock::lock_count_default(name.as_str(), cpu_count);
                         info!("--------------------circuit synthesize[{}]--------------------", name);
                         let now = std::time::Instant::now();
 
