@@ -42,7 +42,7 @@ ff-cl-gen = { version = "0.2.0", optional = true }
 fs2 = { version = "0.4.3", optional = true }
 hex ="0.4"
 futures = {version = "0.3" ,features=["thread-pool"]}
-core_affinity="0.5.10"
+# core_affinity="0.5.10"
 [dev-dependencies]
 hex-literal = "0.3"
 rand_xorshift = "0.2"
