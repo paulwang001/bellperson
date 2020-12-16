@@ -979,9 +979,7 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
             let (proof_tx,proof_rx) = sync_channel(0);
             let mut index = 0usize;
             let mut proofs = vec![None;circuits.len()];
-            if get_circuit_tasks() > 1 {
-                (*C2_CPU_CIRCUIT).get();
-            }
+
             circuits
                 .into_iter()
                 .for_each(|circuit| {
@@ -1013,10 +1011,7 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                     });
                 });
             drop(fft_tx);
-            if get_circuit_tasks() > 1 {
-                std::thread::sleep(Duration::from_secs(60));
-                (*C2_CPU_CIRCUIT).put();
-            }
+
             let a_worker = Arc::new(Worker::new());
             let worker = a_worker.clone();
             sp.spawn_fifo(move |fft|{
