@@ -53,10 +53,10 @@ fn get_circuit_tasks() ->usize {
         if let Ok(val) = val.parse::<usize>() {
             val
         }else{
-            opencl::Device::all().len() + 1
+            opencl::Device::all().len()
         }
     }else{
-        opencl::Device::all().len() + 1
+        opencl::Device::all().len()
     }
 }
 
@@ -974,7 +974,7 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
             let mut itr_rs = r_s.into_iter();
             let mut itr_ss = s_s.into_iter();
             // let is_first = Arc::new(Mutex::new(0));
-            let (fft_tx,fft_rx) = sync_channel(get_circuit_tasks());
+            let (fft_tx,fft_rx) = sync_channel(0);
             let (input_tx,input_rx) = sync_channel(0);
             let (proof_tx,proof_rx) = sync_channel(0);
             let mut index = 0usize;
@@ -1007,7 +1007,7 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                         info!("--------------------circuit synthesized: {} s --------------------",now.elapsed().as_secs());
 
                         sender.send((prover,r,s,p,index)).unwrap();
-                        (*C2_CPU_CIRCUIT).put();
+
                     });
                 });
             drop(fft_tx);
@@ -1027,6 +1027,7 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                             log_d += 1;
                         }
                         let lock = crate::gpu::GPULock::lock_count_default("CC", u8::MAX);
+                        (*C2_CPU_CIRCUIT).put();
                         let now = std::time::Instant::now();
                         trace!("--------------------prover FFT start, logd:{}--------------------",log_d);
                         let mut fft_kern = Some(LockedFFTKernel::<E>::new(log_d, priority));
@@ -1075,7 +1076,16 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
             let worker = a_worker.clone();
             //input for exp
             sp.spawn_fifo(move |exp|{
-
+                let mut param_h_g1_builder = None;
+                let mut param_l_g1_builder = None;
+                let mut o_a_inputs_source = None;
+                let mut o_a_aux_source  = None;
+                let mut o_b_g1_inputs_source = None;
+                let mut o_b_g1_aux_source = None;
+                let mut o_b_g2_inputs_source = None;
+                let mut o_b_g2_aux_source = None;
+                let mut last_input_assignment = 0 ;
+                let mut last_b_input_density_total = 0;
                 while let Ok((
                                  mut prover,
                                  a_s,
@@ -1087,53 +1097,95 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                              )) = input_rx.recv() {
                     let worker = worker.clone();
                     let tx = proof_tx.clone();
+                    if param_h_g1_builder.clone().is_none() {
+                        let param_h =params.get_h(a_s.len()).unwrap();
+                        param_h_g1_builder = Some(param_h);
+                    }
+                    let param_h = param_h_g1_builder.clone().unwrap();
+
+                    let aux_assignment = std::mem::replace(&mut prover.aux_assignment, Vec::new());
+                    let a_aux_assignment= Arc::new(
+                        aux_assignment
+                            .into_iter()
+                            .map(|s| s.into_repr())
+                            .collect::<Vec<_>>()
+                    );
+                    if param_l_g1_builder.clone().is_none() {
+                        let param_l =params.get_l(a_aux_assignment.len()).unwrap();
+                        param_l_g1_builder = Some(param_l);
+                    }
+                    let param_l = param_l_g1_builder.clone().unwrap();
+
+                    let input_assignment = std::mem::replace(&mut prover.input_assignment, Vec::new());
+                    let a_input_assignment = Arc::new(
+                        input_assignment
+                            .into_iter()
+                            .map(|s| s.into_repr())
+                            .collect::<Vec<_>>(),
+                    );
+
+                    let a_aux_density_total = prover.a_aux_density.get_total_density();
+                    if o_a_inputs_source.clone().is_none() || last_input_assignment != a_input_assignment.len() {
+                        let (a_inputs_source, a_aux_source) =
+                            params.get_a(a_input_assignment.len(), a_aux_density_total).unwrap();
+                        o_a_inputs_source = Some(a_inputs_source);
+                        o_a_aux_source = Some(a_aux_source);
+                        last_input_assignment = a_input_assignment.len();
+                    }
+                    let a_inputs_source = o_a_aux_source.clone().unwrap();
+                    let a_aux_source = o_a_aux_source.clone().unwrap();
+
+                    let b_input_density = Arc::new(prover.b_input_density);
+                    let b_input_density_total = b_input_density.get_total_density();
+                    let b_aux_density = Arc::new(prover.b_aux_density);
+                    let b_aux_density_total = b_aux_density.get_total_density();
+                    if o_b_g1_inputs_source.clone().is_none() {
+                        let (b_g1_inputs_source, b_g1_aux_source) =
+                            params.get_b_g1(b_input_density_total, b_aux_density_total).unwrap();
+                        trace!("--------------------prover multiexp param_b_g1 -------------------------");
+                        o_b_g1_inputs_source = Some(b_g1_inputs_source);
+                        o_b_g1_aux_source = Some(b_g1_aux_source);
+
+                        let (b_g2_inputs_source, b_g2_aux_source) =
+                            params.get_b_g2(b_input_density_total, b_aux_density_total).unwrap();
+                        trace!("--------------------prover multiexp param_b_g2 -------------------------");
+                        o_b_g2_inputs_source = Some(b_g2_inputs_source);
+                        o_b_g2_aux_source = Some(b_g2_aux_source);
+                        last_b_input_density_total = b_input_density_total;
+                    }
+
+                    let b_g1_inputs_source = o_b_g1_inputs_source.clone().unwrap();
+                    let b_g1_aux_source = o_b_g1_aux_source.clone().unwrap();
+                    let b_g2_inputs_source = o_b_g2_inputs_source.clone().unwrap();
+                    let b_g2_aux_source = o_b_g2_aux_source.clone().unwrap();
+                    let mut log_d = 0;
+                    let n = prover.a.len();
+                    while (1 << log_d) < n{
+                        log_d += 1;
+                    }
+                    let prover_input_assignment_len = prover.input_assignment.len();
                     exp.spawn_fifo(move|_|{
-                        let mut log_d = 0;
-                        let n = prover.a.len();
-                        while (1 << log_d) < n{
-                            log_d += 1;
-                        }
+
                         let lock = crate::gpu::GPULock::lock_count_default("CC", u8::MAX);
                         let now = std::time::Instant::now();
                         let mut multiexp_kern = Some(LockedMultiexpKernel::<E>::new(log_d, priority));
                         trace!("--------------------prover mutilexp start-------------------------");
                         let h = multiexp(
                             &worker,
-                            params.get_h(a_s.len()).unwrap(),
+                            param_h,
                             FullDensity,
                             a_s,
                             &mut multiexp_kern,
                         );
-
-
-                        let input_assignment = std::mem::replace(&mut prover.input_assignment, Vec::new());
-                        let a_input_assignment = Arc::new(
-                            input_assignment
-                                .into_iter()
-                                .map(|s| s.into_repr())
-                                .collect::<Vec<_>>(),
-                        );
-                        let aux_assignment = std::mem::replace(&mut prover.aux_assignment, Vec::new());
-                        let a_aux_assignment= Arc::new(
-                            aux_assignment
-                                .into_iter()
-                                .map(|s| s.into_repr())
-                                .collect::<Vec<_>>()
-                        );
-
+                        trace!("--------------------prover multiexp h -------------------------");
                         let l = multiexp(
                             &worker,
-                            params.get_l(a_aux_assignment.len()).unwrap(),
+                            param_l,
                             FullDensity,
                             a_aux_assignment.clone(),
                             &mut multiexp_kern,
                         );
-
-                        let a_aux_density_total = prover.a_aux_density.get_total_density();
-
-                        let (a_inputs_source, a_aux_source) =
-                            params.get_a(a_input_assignment.len(), a_aux_density_total).unwrap();
-
+                        trace!("--------------------prover multiexp l -------------------------");
                         let a_inputs = multiexp(
                             &worker,
                             a_inputs_source,
@@ -1141,20 +1193,16 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                             a_input_assignment.clone(),
                             &mut multiexp_kern,
                         );
+                        trace!("--------------------prover multiexp a_inputs -------------------------");
                         let a_aux = multiexp(
                             &worker,
                             a_aux_source,
-                            Arc::new(prover.a_aux_density),
+                            b_aux_density.clone(),
                             a_aux_assignment.clone(),
                             &mut multiexp_kern,
                         );
-                        let b_input_density = Arc::new(prover.b_input_density);
-                        let b_input_density_total = b_input_density.get_total_density();
-                        let b_aux_density = Arc::new(prover.b_aux_density);
-                        let b_aux_density_total = b_aux_density.get_total_density();
+                        trace!("--------------------prover multiexp aux -------------------------");
 
-                        let (b_g1_inputs_source, b_g1_aux_source) =
-                            params.get_b_g1(b_input_density_total, b_aux_density_total).unwrap();
                         let b_g1_inputs = multiexp(
                             &worker,
                             b_g1_inputs_source,
@@ -1162,6 +1210,7 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                             a_input_assignment.clone(),
                             &mut multiexp_kern,
                         );
+                        trace!("--------------------prover multiexp b_g1_inputs -------------------------");
                         let b_g1_aux = multiexp(
                             &worker,
                             b_g1_aux_source,
@@ -1169,9 +1218,8 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                             a_aux_assignment.clone(),
                             &mut multiexp_kern,
                         );
+                        trace!("--------------------prover multiexp b_g1_aux-------------------------");
 
-                        let (b_g2_inputs_source, b_g2_aux_source) =
-                            params.get_b_g2(b_input_density_total, b_aux_density_total).unwrap();
                         let b_g2_inputs = multiexp(
                             &worker,
                             b_g2_inputs_source,
@@ -1179,6 +1227,7 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                             a_input_assignment.clone(),
                             &mut multiexp_kern,
                         );
+                        trace!("--------------------prover multiexp b_g2_inputs -------------------------");
                         let b_g2_aux = multiexp(
                             &worker,
                             b_g2_aux_source,
@@ -1186,6 +1235,7 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                             a_aux_assignment.clone(),
                             &mut multiexp_kern,
                         );
+                        trace!("--------------------prover multiexp b_g2_aux -------------------------");
                         drop(multiexp_kern);
                         drop(lock);
                         info!("--------------------prover mutilexp finished. use:{} s --------------------",now.elapsed().as_secs());
@@ -1201,7 +1251,7 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                             r,
                             s,
                             params,
-                            prover.input_assignment.len(),
+                            prover_input_assignment_len,
                             index,
                         )).unwrap();
                     });
