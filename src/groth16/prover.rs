@@ -802,7 +802,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                             *o_a_aux_source = Some(a_aux_source);
                             *last_input_assignment = a_input_assignment.len();
                         }
-                        (o_a_aux_source.clone().unwrap(),o_a_aux_source.clone().unwrap())
+                        (o_a_inputs_source.clone().unwrap(),o_a_aux_source.clone().unwrap())
                     };
                     let b_input_density = Arc::new(prover.b_input_density);
                     let b_input_density_total = b_input_density.get_total_density();

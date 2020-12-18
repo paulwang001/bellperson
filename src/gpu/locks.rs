@@ -117,6 +117,12 @@ pub fn try_one_device(retry:u32) -> Option<(opencl::Device,File)> {
 }
 
 pub fn prove_mode()-> String{
+    if let Ok(mut f) = std::fs::OpenOptions::new().read(true).open(tmp_path("mode")){
+        let mut mode = String::new();
+        if let Ok(s) = f.read_to_string(&mut mode){
+            return mode;
+        }
+    }
     match std::env::var(FIL_PROOF_PROVE_FIFO){
         Ok(mode) => mode,
         Err(_e) => "y".to_owned()
@@ -327,6 +333,7 @@ use std::collections::HashMap;
 use rand::{RngCore, Rng};
 use std::time::Duration;
 use std::str::FromStr;
+use std::io::Read;
 
 macro_rules! locked_kernel {
     ($class:ident, $kern:ident, $func:ident, $name:expr) => {
