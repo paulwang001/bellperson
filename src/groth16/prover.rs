@@ -6,6 +6,7 @@ use ff::{Field, PrimeField};
 use groupy::{CurveAffine, CurveProjective};
 use rand_core::RngCore;
 use rayon::prelude::*;
+use rand::prelude::*;
 
 use super::{ParameterSource, Proof};
 use crate::domain::{EvaluationDomain, Scalar};
@@ -22,8 +23,7 @@ use crate::gpu::PriorityLock;
 use lazy_static::{*};
 use std::env;
 use mempool::Semphore;
-
-
+use sysinfo::{System, SystemExt};
 
 lazy_static!(
 
@@ -650,7 +650,20 @@ where
         Ok(proofs)
     })
 }
+const MEM32G_UNIT_KB:u64 = (32_u64 * (1_u64 << 30))/1024;
+fn wait_free_mem() -> u64{
+    let  mut sys = System::new_all();
 
+    let total_mem = sys.get_total_memory();
+    let available_mem = sys.get_available_memory();
+    if available_mem - MEM32G_UNIT_KB < MEM32G_UNIT_KB {
+        sys.refresh_all();
+        log::warn!("available memory wait...,{}/{}",available_mem/1024/1024,total_mem/1024/1024);
+        std::thread::sleep(Duration::from_secs(10));
+        return wait_free_mem();
+    }
+    (available_mem - MEM32G_UNIT_KB) / MEM32G_UNIT_KB
+}
 
 fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
     circuits: Vec<C>,
@@ -667,8 +680,11 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
     let pool = crate::create_local_pool();
     pool.install(|| {
         info!("create_proof_batch_priority_fifo-------------------start...");
+
         let task_now = std::time::Instant::now();
-        let fifo_id = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs();
+        let mut rng = rand::thread_rng();
+        let idx = rng.gen_range(1u64,100);
+        let fifo_id = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs()*100 + idx;
         let worker = Worker::new();
 
         let mut param_h_g1_builder = Arc::new(Mutex::new(None));
@@ -681,7 +697,6 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
         let mut o_b_g2_aux_source = Arc::new(Mutex::new(None));
         let mut last_input_assignment = Arc::new(Mutex::new(0)) ;
         let mut last_b_input_density_total = Arc::new(Mutex::new(0));
-
         let proofs =
             circuits
                 .into_par_iter()
@@ -691,9 +706,11 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                     let mut prover = ProvingAssignment::new();
                     {
                         let name = format!("FIFO-{}", fifo_id);
-                        let mut cpu_count = 1;
+                        let max_cpus = wait_free_mem();
+                        trace!("free circuit cpu:{}",max_cpus);
+                        let mut cpu_count = u8::MAX;
                         if let Ok(c) = std::env::var("FIL_PROOFS_CPU_COUNT"){
-                            cpu_count = c.parse().unwrap_or(1);
+                            cpu_count = c.parse().unwrap_or(u8::MAX);
                         }
                         let _l = crate::gpu::GPULock::lock_count_default(name.as_str(), cpu_count);
                         info!("--------------------circuit synthesize[{}]--------------------", name);
@@ -1077,7 +1094,10 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                         (*C2_CPU_CIRCUIT).get();
                         info!("--------------------circuit synthesize...--------------------");
                         let now = std::time::Instant::now();
-
+                        // let c10 = core_affinity::CoreId {
+                        //     id:10,
+                        // };
+                        // core_affinity::set_for_current(c10);
                         let mut prover = ProvingAssignment::new();
 
                         prover.alloc_input(|| "", || Ok(E::Fr::one())).unwrap();
@@ -1104,7 +1124,10 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                     let worker = worker.clone();
                     fft.spawn_fifo(move|_|{
                         let n = prover.a.len();
-
+                        // let c6 = core_affinity::CoreId {
+                        //     id:6,
+                        // };
+                        // core_affinity::set_for_current(c6);
                         let mut log_d = 0;
                         while (1 << log_d) < n{
                             log_d += 1;
@@ -1248,7 +1271,10 @@ fn create_proof_batch_priority_channel<E, C, P: ParameterSource<E>>(
                     }
                     let prover_input_assignment_len = prover.input_assignment.len();
                     exp.spawn_fifo(move|_|{
-
+                        let c6 = core_affinity::CoreId {
+                            id:6,
+                        };
+                        core_affinity::set_for_current(c6);
                         let lock = crate::gpu::GPULock::lock_count_default("CC", u8::MAX);
                         let now = std::time::Instant::now();
                         let mut multiexp_kern = Some(LockedMultiexpKernel::<E>::new(log_d, priority));
