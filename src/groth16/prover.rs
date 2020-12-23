@@ -650,19 +650,23 @@ where
         Ok(proofs)
     })
 }
+
 const MEM32G_UNIT_KB:u64 = (32_u64 * (1_u64 << 30))/1024;
 fn wait_free_mem() -> u64{
     let  mut sys = System::new_all();
 
     let total_mem = sys.get_total_memory();
-    let available_mem = sys.get_available_memory();
-    if available_mem - MEM32G_UNIT_KB < MEM32G_UNIT_KB {
+    let mut available_mem = sys.get_available_memory();
+    if available_mem >= MEM32G_UNIT_KB {
+        available_mem -= MEM32G_UNIT_KB;
+    }
+    if available_mem < MEM32G_UNIT_KB {
         sys.refresh_all();
         log::warn!("available memory wait...,{}/{}",available_mem/1024/1024,total_mem/1024/1024);
         std::thread::sleep(Duration::from_secs(10));
         return wait_free_mem();
     }
-    (available_mem - MEM32G_UNIT_KB) / MEM32G_UNIT_KB
+    available_mem / MEM32G_UNIT_KB
 }
 
 fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
@@ -706,13 +710,14 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                     let mut prover = ProvingAssignment::new();
                     {
                         let name = format!("FIFO-{}", fifo_id);
-                        let max_cpus = wait_free_mem();
-                        trace!("free circuit cpu:{}",max_cpus);
+
                         let mut cpu_count = u8::MAX;
                         if let Ok(c) = std::env::var("FIL_PROOFS_CPU_COUNT"){
                             cpu_count = c.parse().unwrap_or(u8::MAX);
                         }
                         let _l = crate::gpu::GPULock::lock_count_default(name.as_str(), cpu_count);
+                        let max_cpus = wait_free_mem();
+                        trace!("free circuit cpu:{}",max_cpus);
                         info!("--------------------circuit synthesize[{}]--------------------", name);
                         let now = std::time::Instant::now();
 
