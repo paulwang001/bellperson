@@ -657,9 +657,13 @@ fn wait_free_mem() -> u64{
 
     let total_mem = sys.get_total_memory();
     let mut available_mem = sys.get_available_memory();
-    if available_mem >= MEM32G_UNIT_KB {
-        available_mem -= MEM32G_UNIT_KB;
+    let n = opencl::Device::all().len();
+    for _ in 0..n {
+        if available_mem >= MEM32G_UNIT_KB {
+            available_mem -= MEM32G_UNIT_KB;
+        }
     }
+
     if available_mem < MEM32G_UNIT_KB {
         sys.refresh_all();
         log::warn!("available memory wait...,{}/{}",available_mem/1024/1024,total_mem/1024/1024);
