@@ -657,10 +657,15 @@ fn wait_free_mem() -> u64{
 
     let total_mem = sys.get_total_memory();
     let mut available_mem = sys.get_available_memory();
-    let n = opencl::Device::all().len();
-    for _ in 0..n {
-        if available_mem >= MEM32G_UNIT_KB {
-            available_mem -= MEM32G_UNIT_KB;
+    let mut n = opencl::Device::all().len();
+    if std::env::var("BELLMAN_NO_GPU").is_ok() {
+        n = 0;
+    }
+    if n > 0 {
+        for _ in 0..n {
+            if available_mem >= MEM32G_UNIT_KB {
+                available_mem -= MEM32G_UNIT_KB;
+            }
         }
     }
 
@@ -705,23 +710,30 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
         let mut o_b_g2_aux_source = Arc::new(Mutex::new(None));
         let mut last_input_assignment = Arc::new(Mutex::new(0)) ;
         let mut last_b_input_density_total = Arc::new(Mutex::new(0));
+        let mut running = Arc::new(Mutex::new(0_u8));
+
+        let name = format!("FIFO-{}", fifo_id);
+
+        let mut cpu_count = opencl::Device::all().len() as u8;
+
+        if let Ok(c) = std::env::var("FIL_PROOFS_CPU_COUNT"){
+            cpu_cpu_countcount = c.parse().unwrap_or(cpu_count);
+        }
+
         let proofs =
             circuits
                 .into_par_iter()
                 .zip(r_s.into_par_iter())
                 .zip(s_s.into_par_iter())
                 .map(|((circuit, r), s)| {
+
+                    let gpu_locker = crate::gpu::GPULock::lock_count_default(name.as_str(), cpu_count);
+
                     let mut prover = ProvingAssignment::new();
                     {
-                        let name = format!("FIFO-{}", fifo_id);
 
-                        let mut cpu_count = opencl::Device::all().len() as u8 * 2_u8;
-                        if let Ok(c) = std::env::var("FIL_PROOFS_CPU_COUNT"){
-                            cpu_count = c.parse().unwrap_or(cpu_count);
-                        }
-                        let _l = crate::gpu::GPULock::lock_count_default(name.as_str(), cpu_count);
                         let max_cpus = wait_free_mem();
-                        trace!("free circuit cpu:{}",max_cpus);
+                        trace!("free circuit cpu:{}/{}",max_cpus,cpu_count);
                         info!("--------------------circuit synthesize[{}]--------------------", name);
                         let now = std::time::Instant::now();
 
@@ -733,6 +745,8 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                             prover.enforce(|| "", |lc| lc + Variable(Index::Input(i)), |lc| lc, |lc| lc);
                         }
                         info!("--------------------circuit synthesized: {} s --------------------", now.elapsed().as_secs());
+                        let mut run = running.lock().unwrap();
+                        *run += 1_u8;
                     }
 
                     let mut n = 0;
@@ -742,6 +756,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         log_d += 1;
                     }
                     info!("prover FFT:{}", n);
+
 
                     let aa = {
                         let mut a =
@@ -830,6 +845,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         }
                         (o_a_inputs_source.clone().unwrap(),o_a_aux_source.clone().unwrap())
                     };
+                    let input_len = prover.input_assignment.len();
                     let b_input_density = Arc::new(prover.b_input_density);
                     let b_input_density_total = b_input_density.get_total_density();
                     let b_aux_density = Arc::new(prover.b_aux_density);
@@ -914,7 +930,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         &mut multiexp_kern,
                     );
 
-                    let input_len = prover.input_assignment.len();
+
                     let a_aux = multiexp(
                         &worker,
                         a_aux_source,
@@ -1018,9 +1034,15 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                     let mut out = vec![];
                     p.write(&mut out).unwrap();
                     let out = hex::encode(out);
-                    log::debug!("my proof fifo:{}", out);
+                    {
+                        let mut run = running.lock().unwrap();
+                        *run -= 1_u8;
+                        log::debug!("my proof fifo:{},running={}", out,run);
+                    }
+
                     drop(out);
                     drop(lock);
+                    drop(gpu_locker);
                     Ok(p)
                 }).collect::<Result<Vec<_>, SynthesisError>>()?;
         trace!("~~~~~~~~~~~~~~~~proofs total time:{} min~~~~~~~~~~~~~~~~~", task_now.elapsed().as_secs_f32() / 60.0);
