@@ -211,6 +211,9 @@ impl GPULock {
         let mut count = count;
         if count == u8::MAX {
             count = opencl::Device::all().len() as u8;
+            if count == 0 {
+                count = 1;
+            }
         }
         let mut size = match std::env::var(format!("FIL_PROOFS_LOCK_{}",name.to_uppercase())){
             Ok(c) => c.parse().unwrap_or(count),

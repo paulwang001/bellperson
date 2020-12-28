@@ -667,7 +667,7 @@ fn wait_free_mem() -> u64{
     if available_mem < MEM32G_UNIT_KB {
         sys.refresh_all();
         log::warn!("available memory wait...,{}/{}",available_mem/1024/1024,total_mem/1024/1024);
-        std::thread::sleep(Duration::from_secs(10));
+        std::thread::sleep(Duration::from_secs(5));
         return wait_free_mem();
     }
     available_mem / MEM32G_UNIT_KB
@@ -715,9 +715,9 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                     {
                         let name = format!("FIFO-{}", fifo_id);
 
-                        let mut cpu_count = u8::MAX;
+                        let mut cpu_count = opencl::Device::all().len() as u8 * 2_u8;
                         if let Ok(c) = std::env::var("FIL_PROOFS_CPU_COUNT"){
-                            cpu_count = c.parse().unwrap_or(u8::MAX);
+                            cpu_count = c.parse().unwrap_or(cpu_count);
                         }
                         let _l = crate::gpu::GPULock::lock_count_default(name.as_str(), cpu_count);
                         let max_cpus = wait_free_mem();
