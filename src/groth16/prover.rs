@@ -717,7 +717,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
         let mut cpu_count = opencl::Device::all().len() as u8;
 
         if let Ok(c) = std::env::var("FIL_PROOFS_CPU_COUNT"){
-            cpu_cpu_countcount = c.parse().unwrap_or(cpu_count);
+            cpu_count = c.parse().unwrap_or(cpu_count);
         }
 
         let proofs =
