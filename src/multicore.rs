@@ -19,12 +19,12 @@ lazy_static! {
     } else {
         num_cpus::get()
     };
-    pub static ref THREAD_POOL: rayon::ThreadPool = rayon::ThreadPoolBuilder::new()
-        .num_threads(*NUM_CPUS)
+    pub static ref THREAD_POOL: std::sync::Arc<rayon::ThreadPool> = std::sync::Arc::new(rayon::ThreadPoolBuilder::new()
+        .num_threads(NUM_CPUS.max(64))
         .build()
-        .unwrap();
+        .unwrap());
     pub static ref VERIFIER_POOL: rayon::ThreadPool = rayon::ThreadPoolBuilder::new()
-        .num_threads(NUM_CPUS.max(6))
+        .num_threads(NUM_CPUS.max(32))
         .build()
         .unwrap();
 }

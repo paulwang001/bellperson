@@ -155,6 +155,9 @@ use ahash::AHashMap as HashMap;
 use std::io;
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
+use std::thread::sleep;
+use std::time::Duration;
+use sysinfo::{System, SystemExt, DiskExt};
 
 const BELLMAN_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -573,9 +576,39 @@ impl<'cs, E: ScalarEngine, CS: ConstraintSystem<E>> ConstraintSystem<E> for &'cs
 }
 
 /// create a local thread pool
-pub fn create_local_pool() -> rayon::ThreadPool {
-    let num = num_cpus::get();
-    rayon::ThreadPoolBuilder::new().num_threads(num).build().expect("create local thread pool error")
+pub fn create_local_pool() -> std::sync::Arc<rayon::ThreadPool> {
+    // let num = std::cmp::max(128,num_cpus::get());
+    // {
+    //     match rayon::ThreadPoolBuilder::new().num_threads(num).build() {
+    //         Ok(t) => t,
+    //         Err(e)=>{
+    //             log::error!("{:?}",e);
+    //             sleep(Duration::from_secs(5));
+    //             create_local_pool()
+    //         }
+    //     }
+    // }
+    crate::multicore::THREAD_POOL.clone()
+}
+
+pub fn wait_disk_space() {
+    let mut sys = System::new_all();
+    let ps_space_free:u64 = match std::env::var("P2_SPACE") {
+        Ok(v) => v.parse().unwrap_or(1024),
+        Err(_e) => 1024_u64
+    };
+    let worker_path = std::env::var("WORKER_PATH").unwrap_or("/opt/hdd_pool/.lotusworker".to_string());
+    for disk in sys.get_disks() {
+        let mount_point = disk.get_mount_point().to_str().expect("");
+        if mount_point.len() > 1 && worker_path.starts_with(mount_point) {
+            let free = disk.get_available_space() >> 30 ;
+            if free < ps_space_free {
+                log::warn!("waiting disk space  {}<{}G",free,ps_space_free);
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                wait_disk_space()
+            }
+        }
+    }
 }
 
 #[cfg(all(test, feature = "groth16"))]
