@@ -611,6 +611,29 @@ pub fn wait_disk_space() {
     }
 }
 
+pub fn wait_ssd_space() {
+    let mut sys = System::new_all();
+    let ssd_space_free:u64 = match std::env::var("SSD_SPACE") {
+        Ok(v) => v.parse().unwrap_or(256),
+        Err(_e) => 256_u64
+    };
+    let ssd_path = std::env::var("FIL_PROOFS_SSD_PARENT").unwrap_or("N".to_string());
+    if "N" == &ssd_path[..] {
+        return;
+    }
+    for disk in sys.get_disks() {
+        let mount_point = disk.get_mount_point().to_str().expect("");
+        if mount_point.len() > 1 && ssd_path.starts_with(mount_point) {
+            let free = disk.get_available_space() >> 30 ;
+            if free < ssd_space_free {
+                log::warn!("waiting ssd space  {}<{}G",free,ssd_space_free);
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                wait_ssd_space()
+            }
+        }
+    }
+}
+
 #[cfg(all(test, feature = "groth16"))]
 mod tests {
     use super::*;
