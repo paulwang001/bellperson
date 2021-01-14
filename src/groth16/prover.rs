@@ -727,8 +727,6 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                 .zip(s_s.into_par_iter())
                 .map(|((circuit, r), s)| {
 
-
-
                     let mut prover = ProvingAssignment::new();
                     {
 
