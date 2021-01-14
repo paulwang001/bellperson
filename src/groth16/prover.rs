@@ -727,13 +727,14 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                 .zip(s_s.into_par_iter())
                 .map(|((circuit, r), s)| {
 
-                    let gpu_locker = crate::gpu::GPULock::lock_count_default(name.as_str(), cpu_count);
+
 
                     let mut prover = ProvingAssignment::new();
                     {
 
                         let max_cpus = wait_free_mem();
                         trace!("free circuit cpu:{}/{}",max_cpus,cpu_count);
+                        let _cpu_locker = crate::gpu::GPULock::lock_count_default(name.as_str(), cpu_count);
                         info!("--------------------circuit synthesize[{}]--------------------", name);
                         let now = std::time::Instant::now();
 
@@ -1042,7 +1043,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
 
                     drop(out);
                     drop(lock);
-                    drop(gpu_locker);
+                    // drop(gpu_locker);
                     Ok(p)
                 }).collect::<Result<Vec<_>, SynthesisError>>()?;
         trace!("~~~~~~~~~~~~~~~~proofs total time:{} min~~~~~~~~~~~~~~~~~", task_now.elapsed().as_secs_f32() / 60.0);
