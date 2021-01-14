@@ -593,7 +593,7 @@ pub fn create_local_pool() -> std::sync::Arc<rayon::ThreadPool> {
 
 pub fn wait_disk_space() {
     let mut sys = System::new_all();
-    let ps_space_free:u64 = match std::env::var("P2_SPACE") {
+    let ps_space_free:u64 = match std::env::var("P1_SPACE") {
         Ok(v) => v.parse().unwrap_or(1024),
         Err(_e) => 1024_u64
     };
