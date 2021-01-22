@@ -955,23 +955,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         &mut multiexp_kern,
                     );
 
-                    // let input_assignment = std::mem::replace(&mut prover.input_assignment, Vec::new());
-                    // let a_input_assignment = Arc::new(
-                    //     input_assignment
-                    //         .into_iter()
-                    //         .map(|s| s.into_repr())
-                    //         .collect::<Vec<_>>(),
-                    // );
-                    //
-                    // let aux_assignment = std::mem::replace(&mut prover.aux_assignment, Vec::new());
-                    // let a_aux_assignment = Arc::new(
-                    //     aux_assignment
-                    //         .into_iter()
-                    //         .map(|s| s.into_repr())
-                    //         .collect::<Vec<_>>()
-                    // );
-
-                    let l = multiexp(
+                    let l = multiexp_fulldensity(
                         &worker,
                         param_l,
                         FullDensity,
@@ -979,12 +963,7 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         &mut multiexp_kern,
                     );
 
-                    // let a_aux_density_total = prover.a_aux_density.get_total_density();
-                    //
-                    // let (a_inputs_source, a_aux_source) =
-                    //     params.get_a(a_input_assignment.len(), a_aux_density_total).unwrap();
-
-                    let a_inputs = multiexp(
+                    let a_inputs = multiexp_fulldensity(
                         &worker,
                         a_inputs_source,
                         FullDensity,
@@ -992,22 +971,24 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         &mut multiexp_kern,
                     );
 
-
-                    let a_aux = multiexp(
+                    let (
+                        a_aux_bss,
+                        a_aux_exps,
+                        a_aux_skip,
+                        a_aux_n
+                    ) = density_filter(
+                        a_aux_source.clone(),
+                        a_aux_density.clone(),
+                        a_aux_assignment.clone()
+                    );
+                    let a_aux = multiexp_skipdensity(
                         &worker,
-                        a_aux_source,
-                        a_aux_density,
-                        a_aux_assignment.clone(),
+                        a_aux_bss,
+                        a_aux_exps,
+                        a_aux_skip,
+                        a_aux_n,
                         &mut multiexp_kern,
                     );
-
-                    // let b_input_density = Arc::new(prover.b_input_density);
-                    // let b_input_density_total = b_input_density.get_total_density();
-                    // let b_aux_density = Arc::new(prover.b_aux_density);
-                    // let b_aux_density_total = b_aux_density.get_total_density();
-                    //
-                    // let (b_g1_inputs_source, b_g1_aux_source) =
-                    //     params.get_b_g1(b_input_density_total, b_aux_density_total).unwrap();
 
                     let b_g1_inputs = multiexp(
                         &worker,
@@ -1017,17 +998,25 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         &mut multiexp_kern,
                     );
 
-                    let b_g1_aux = multiexp(
-                        &worker,
-                        b_g1_aux_source,
+                    let (
+                        b_g1_aux_bss,
+                        b_g1_aux_exps,
+                        b_g1_aux_skip,
+                        b_g1_aux_n
+                    ) = density_filter(
+                        b_g1_aux_source.clone(),
                         b_aux_density.clone(),
-                        a_aux_assignment.clone(),
+                        a_aux_assignment.clone()
+                    );
+                    let b_g1_aux = multiexp_skipdensity(
+                        &worker,
+                        b_g1_aux_bss,
+                        b_g1_aux_exps,
+                        b_g1_aux_skip,
+                        b_g1_aux_n,
                         &mut multiexp_kern,
                     );
 
-                    // let (b_g2_inputs_source, b_g2_aux_source) =
-                    //     params.get_b_g2(b_input_density_total, b_aux_density_total).unwrap();
-                    //
                     let b_g2_inputs = multiexp(
                         &worker,
                         b_g2_inputs_source,
@@ -1035,11 +1024,22 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
                         a_input_assignment.clone(),
                         &mut multiexp_kern,
                     );
-                    let b_g2_aux = multiexp(
+                    let (
+                        b_g2_aux_bss,
+                        b_g2_aux_exps,
+                        b_g2_aux_skip,
+                        b_g2_aux_n
+                    ) = density_filter(
+                        b_g2_aux_source.clone(),
+                        b_aux_density.clone(),
+                        a_aux_assignment.clone()
+                    );
+                    let b_g2_aux = multiexp_skipdensity(
                         &worker,
-                        b_g2_aux_source,
-                        b_aux_density,
-                        a_aux_assignment.clone(),
+                        b_g2_aux_bss,
+                        b_g2_aux_exps,
+                        b_g2_aux_skip,
+                        b_g2_aux_n,
                         &mut multiexp_kern,
                     );
                     drop(multiexp_kern);
