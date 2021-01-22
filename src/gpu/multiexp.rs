@@ -17,7 +17,7 @@ use std::sync::mpsc;
 extern crate scoped_threadpool;
 use scoped_threadpool::Pool;
 
-const MAX_WINDOW_SIZE: usize = 11;
+const MAX_WINDOW_SIZE: usize = 10;
 const LOCAL_WORK_SIZE: usize = 256;
 const MEMORY_PADDING: f64 = 0.2f64; // Let 20% of GPU memory be free
 
@@ -52,7 +52,7 @@ where
 
 fn calc_num_groups(core_count: usize, num_windows: usize) -> usize {
     // Observations show that we get the best performance when num_groups * num_windows ~= 2 * CUDA_CORES
-    4 * core_count / num_windows
+    2 * core_count / num_windows
 }
 
 fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
@@ -64,7 +64,7 @@ fn calc_window_size(n: usize, exp_bits: usize, core_count: usize) -> usize {
     //
     // Thus we need to solve the following equation:
     // window_size + ln(window_size) = ln(exp_bits * n / (2 * core_count))
-    let lower_bound = (((exp_bits * n) as f64) / ((4 * core_count) as f64)).ln();
+    let lower_bound = (((exp_bits * n) as f64) / ((2 * core_count) as f64)).ln();
     for w in 0..MAX_WINDOW_SIZE {
         if (w as f64) + (w as f64).ln() > lower_bound {
             return w;
@@ -79,7 +79,7 @@ fn calc_best_chunk_size(max_window_size: usize, core_count: usize, exp_bits: usi
     // n = e^window_size * window_size * 2 * core_count / exp_bits
     (((max_window_size as f64).exp() as f64)
         * (max_window_size as f64)
-        * 4f64
+        * 2f64
         * (core_count as f64)
         / (exp_bits as f64))
         .ceil() as usize
@@ -93,7 +93,7 @@ where
     let exp_size = exp_size::<E>();
     let proj_size = std::mem::size_of::<E::G1>() + std::mem::size_of::<E::G2>();
     ((((mem as f64) * (1f64 - MEMORY_PADDING)) as usize)
-        - (4 * core_count * ((1 << MAX_WINDOW_SIZE) + 1) * proj_size))
+        - (2 * core_count * ((1 << MAX_WINDOW_SIZE) + 1) * proj_size))
         / (aff_size + exp_size)
 }
 
@@ -164,10 +164,10 @@ where
         exp_buffer.write_from(0, exps)?;
         let bucket_buffer = self
             .program
-            .create_buffer::<<G as CurveAffine>::Projective>(4 * self.core_count * bucket_len)?;
+            .create_buffer::<<G as CurveAffine>::Projective>(2 * self.core_count * bucket_len)?;
         let result_buffer = self
             .program
-            .create_buffer::<<G as CurveAffine>::Projective>(4 * self.core_count)?;
+            .create_buffer::<<G as CurveAffine>::Projective>(2 * self.core_count)?;
 
         // Make global work size divisible by `LOCAL_WORK_SIZE`
         let mut global_work_size = num_windows * num_groups;
