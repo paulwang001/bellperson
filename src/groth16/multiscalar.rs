@@ -111,7 +111,7 @@ pub fn precompute_fixed_window<E: Engine>(
     pool.install(||{
         let table_entries = (1 << window_size) - 1;
         let num_points = points.len();
-
+        log::debug!("_par_size num_points:{}",num_points);
         let tables = points
             .into_par_iter()
             .map(|point| {
@@ -221,6 +221,7 @@ where
     }
 
     let num_parts = (num_points + chunk_size - 1) / chunk_size;
+    log::debug!("_par_size num_parts:{}",num_parts);
     let pool = crate::create_local_pool();
     pool.install(||{
         (0..num_parts)

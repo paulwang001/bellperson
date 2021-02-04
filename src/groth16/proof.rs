@@ -52,7 +52,7 @@ impl<E: Engine> Proof<E> {
                 B(E::G2Affine),
                 C(E::G1Affine),
             }
-
+            log::debug!("_par_size num_proofs:{}",num_proofs * 3);
             let parts = (0..num_proofs * 3)
                 .into_par_iter()
                 .map(|i| -> io::Result<_> {

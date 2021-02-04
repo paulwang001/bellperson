@@ -12,7 +12,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::{ParameterSource, PreparedVerifyingKey, VerifyingKey};
-use crate::create_local_pool;
 
 pub struct MappedParameters<E: Engine> {
     /// The parameter file we're reading from.  
@@ -58,35 +57,29 @@ impl<'a, E: Engine> ParameterSource<E> for &'a MappedParameters<E> {
     }
 
     fn get_h(&self, _num_h: usize) -> Result<Self::G1Builder, SynthesisError> {
-        let pool = create_local_pool();
-        pool.install(||{
-            let now = std::time::Instant::now();
-            let builder = self
-                .h
-                .par_iter()
-                .cloned()
-                .map(|h| read_g1::<E>(&self.params, h, self.checked))
-                .collect::<Result<_, _>>()?;
+        let now = std::time::Instant::now();
+        let builder = self
+            .h
+            .iter()
+            .cloned()
+            .map(|h| read_g1::<E>(&self.params, h, self.checked))
+            .collect::<Result<_, _>>()?;
 
-            log::trace!("get_h:use {}ms",now.elapsed().as_millis());
+        log::trace!("get_h:use {}ms",now.elapsed().as_millis());
 
-            Ok((Arc::new(builder), 0))
-        })
+        Ok((Arc::new(builder), 0))
     }
 
     fn get_l(&self, _num_l: usize) -> Result<Self::G1Builder, SynthesisError> {
-        let pool = create_local_pool();
-        pool.install(|| {
-            let now = std::time::Instant::now();
-            let builder = self
-                .l
-                .par_iter()
-                .cloned()
-                .map(|l| read_g1::<E>(&self.params, l, self.checked))
-                .collect::<Result<_, _>>()?;
-            log::trace!("get_l:use {}ms",now.elapsed().as_millis());
-            Ok((Arc::new(builder), 0))
-        })
+        let now = std::time::Instant::now();
+        let builder = self
+            .l
+            .iter()
+            .cloned()
+            .map(|l| read_g1::<E>(&self.params, l, self.checked))
+            .collect::<Result<_, _>>()?;
+        log::trace!("get_l:use {}ms",now.elapsed().as_millis());
+        Ok((Arc::new(builder), 0))
     }
 
     fn get_a(
@@ -94,20 +87,17 @@ impl<'a, E: Engine> ParameterSource<E> for &'a MappedParameters<E> {
         num_inputs: usize,
         _num_a: usize,
     ) -> Result<(Self::G1Builder, Self::G1Builder), SynthesisError> {
-        let pool = create_local_pool();
-        pool.install(|| {
-            let now = std::time::Instant::now();
-            let builder = self
-                .a
-                .par_iter()
-                .cloned()
-                .map(|a| read_g1::<E>(&self.params, a, self.checked))
-                .collect::<Result<_, _>>()?;
+        let now = std::time::Instant::now();
+        let builder = self
+            .a
+            .iter()
+            .cloned()
+            .map(|a| read_g1::<E>(&self.params, a, self.checked))
+            .collect::<Result<_, _>>()?;
 
-            let builder: Arc<Vec<_>> = Arc::new(builder);
-            log::trace!("get_a:use {}ms,num_inputs:{}",now.elapsed().as_millis(),num_inputs);
-            Ok(((builder.clone(), 0), (builder, num_inputs)))
-        })
+        let builder: Arc<Vec<_>> = Arc::new(builder);
+        log::trace!("get_a:use {}ms,num_inputs:{}",now.elapsed().as_millis(),num_inputs);
+        Ok(((builder.clone(), 0), (builder, num_inputs)))
     }
 
     fn get_b_g1(
@@ -115,20 +105,17 @@ impl<'a, E: Engine> ParameterSource<E> for &'a MappedParameters<E> {
         num_inputs: usize,
         _num_b_g1: usize,
     ) -> Result<(Self::G1Builder, Self::G1Builder), SynthesisError> {
-        let pool = create_local_pool();
-        pool.install(|| {
-            let now = std::time::Instant::now();
-            let builder = self
-                .b_g1
-                .par_iter()
-                .cloned()
-                .map(|b_g1| read_g1::<E>(&self.params, b_g1, self.checked))
-                .collect::<Result<_, _>>()?;
+        let now = std::time::Instant::now();
+        let builder = self
+            .b_g1
+            .iter()
+            .cloned()
+            .map(|b_g1| read_g1::<E>(&self.params, b_g1, self.checked))
+            .collect::<Result<_, _>>()?;
 
-            let builder: Arc<Vec<_>> = Arc::new(builder);
-            log::trace!("get_b_g1:use {}ms,num_inputs:{}",now.elapsed().as_millis(),num_inputs);
-            Ok(((builder.clone(), 0), (builder, num_inputs)))
-        })
+        let builder: Arc<Vec<_>> = Arc::new(builder);
+        log::trace!("get_b_g1:use {}ms,num_inputs:{}",now.elapsed().as_millis(),num_inputs);
+        Ok(((builder.clone(), 0), (builder, num_inputs)))
     }
 
     fn get_b_g2(
@@ -136,20 +123,17 @@ impl<'a, E: Engine> ParameterSource<E> for &'a MappedParameters<E> {
         num_inputs: usize,
         _num_b_g2: usize,
     ) -> Result<(Self::G2Builder, Self::G2Builder), SynthesisError> {
-        let pool = create_local_pool();
-        pool.install(|| {
-            let now = std::time::Instant::now();
-            let builder = self
-                .b_g2
-                .par_iter()
-                .cloned()
-                .map(|b_g2| read_g2::<E>(&self.params, b_g2, self.checked))
-                .collect::<Result<_, _>>()?;
+        let now = std::time::Instant::now();
+        let builder = self
+            .b_g2
+            .iter()
+            .cloned()
+            .map(|b_g2| read_g2::<E>(&self.params, b_g2, self.checked))
+            .collect::<Result<_, _>>()?;
 
-            let builder: Arc<Vec<_>> = Arc::new(builder);
-            log::trace!("get_b_g2:use {}ms,num_inputs:{}",now.elapsed().as_millis(),num_inputs);
-            Ok(((builder.clone(), 0), (builder, num_inputs)))
-        })
+        let builder: Arc<Vec<_>> = Arc::new(builder);
+        log::trace!("get_b_g2:use {}ms,num_inputs:{}",now.elapsed().as_millis(),num_inputs);
+        Ok(((builder.clone(), 0), (builder, num_inputs)))
     }
 }
 

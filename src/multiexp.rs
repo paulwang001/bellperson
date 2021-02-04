@@ -264,6 +264,7 @@ where
     };
     let pool = crate::create_local_pool();
     pool.install(|| {
+        log::debug!("_par_size NUM_BITS:{}",<G::Engine as ScalarEngine>::Fr::NUM_BITS);
         let parts = (0..<G::Engine as ScalarEngine>::Fr::NUM_BITS)
             .into_par_iter()
             .step_by(c as usize)

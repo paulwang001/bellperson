@@ -158,6 +158,7 @@ use std::ops::{Add, Sub};
 use std::thread::sleep;
 use std::time::Duration;
 use sysinfo::{System, SystemExt, DiskExt};
+use std::sync::Arc;
 
 const BELLMAN_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -577,18 +578,18 @@ impl<'cs, E: ScalarEngine, CS: ConstraintSystem<E>> ConstraintSystem<E> for &'cs
 
 /// create a local thread pool
 pub fn create_local_pool() -> std::sync::Arc<rayon::ThreadPool> {
-    // let num = std::cmp::max(128,num_cpus::get());
-    // {
-    //     match rayon::ThreadPoolBuilder::new().num_threads(num).build() {
-    //         Ok(t) => t,
-    //         Err(e)=>{
-    //             log::error!("{:?}",e);
-    //             sleep(Duration::from_secs(5));
-    //             create_local_pool()
-    //         }
-    //     }
-    // }
-    crate::multicore::THREAD_POOL.clone()
+    let num = std::cmp::max(128,num_cpus::get());
+    {
+        match rayon::ThreadPoolBuilder::new().num_threads(num).build() {
+            Ok(t) => Arc::new(t),
+            Err(e)=>{
+                log::warn!("{:?}",e);
+                sleep(Duration::from_secs(5));
+                create_local_pool()
+            }
+        }
+    }
+    // crate::multicore::THREAD_POOL.clone()
 }
 
 pub fn wait_disk_space() {
