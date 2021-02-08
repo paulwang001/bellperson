@@ -111,7 +111,7 @@ pub fn precompute_fixed_window<E: Engine>(
     pool.install(||{
         let table_entries = (1 << window_size) - 1;
         let num_points = points.len();
-        log::debug!("_par_size num_points:{}",num_points);
+        log::debug!("_par_size num_points:{}",num_points);//10|133|328|25301
         let tables = points
             .into_par_iter()
             .map(|point| {

@@ -753,6 +753,12 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
         C: Circuit<E> + Send,
 {
 
+    let mut cpu_count = opencl::Device::all().len() as u8;
+
+    if let Ok(c) = std::env::var("FIL_PROOFS_CPU_COUNT"){
+        cpu_count = c.parse().unwrap_or(cpu_count);
+    }
+    let _locker = crate::gpu::GPULock::lock_count_default("PROVER", cpu_count);
     let pool = crate::create_local_pool();
     pool.install(|| {
         info!("create_proof_batch_priority_fifo-------------------start...");
@@ -776,12 +782,6 @@ fn create_proof_batch_priority_fifo<E, C, P: ParameterSource<E>>(
         let mut running = Arc::new(Mutex::new(0_u8));
 
         let name = format!("FIFO-{}", fifo_id);
-
-        let mut cpu_count = opencl::Device::all().len() as u8;
-
-        if let Ok(c) = std::env::var("FIL_PROOFS_CPU_COUNT"){
-            cpu_count = c.parse().unwrap_or(cpu_count);
-        }
 
         let proofs =
             circuits
