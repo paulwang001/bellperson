@@ -19,7 +19,7 @@ where
     program: opencl::Program,
     pq_buffer: opencl::Buffer<E::Fr>,
     omegas_buffer: opencl::Buffer<E::Fr>,
-    _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
+    _lock: locks::MultiGPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
     priority: bool,
 }
 
@@ -28,15 +28,22 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<FFTKernel<E>> {
-        let lock = locks::GPULock::lock();
-
-        let devices = opencl::Device::all();
-        if devices.is_empty() {
+        // let lock = locks::GPULock::lock();
+        let device = crate::gpu::try_one_device(1000);
+        if device.is_none() {
             return Err(GPUError::Simple("No working GPUs found!"));
         }
+        // drop(lock);
+        let (device,lock) = device.unwrap();
+        let lock = locks::MultiGPULock::lock_file(lock,device.bus_id().unwrap());
 
-        // Select the first device for FFT
-        let device = devices[0].clone();
+        // let devices = opencl::Device::all();
+        // if devices.is_empty() {
+        //     return Err(GPUError::Simple("No working GPUs found!"));
+        // }
+        //
+        // // Select the first device for FFT
+        // let device = devices[0].clone();
 
         let src = sources::kernel::<E>(device.brand() == opencl::Brand::Nvidia);
 
@@ -45,7 +52,7 @@ where
         let omegas_buffer = program.create_buffer::<E::Fr>(LOG2_MAX_ELEMENTS)?;
 
         info!("FFT: 1 working device(s) selected.");
-        info!("FFT: Device 0: {}", program.device().name());
+        info!("FFT: Device one: {}:{}", program.device().name(),program.device().bus_id().unwrap());
 
         Ok(FFTKernel {
             program,
@@ -110,7 +117,7 @@ where
                 pq[i].mul_assign(&twiddle);
             }
         }
-        self.pq_buffer.write_from(0, &pq)?;
+        self.program.write_from_buffer(&self.pq_buffer, 0, &pq)?;
 
         // Precalculate [omega, omega^2, omega^4, omega^8, ..., omega^(2^31)]
         let mut omegas = vec![E::Fr::zero(); 32];
@@ -118,7 +125,8 @@ where
         for i in 1..LOG2_MAX_ELEMENTS {
             omegas[i] = omegas[i - 1].pow([2u64]);
         }
-        self.omegas_buffer.write_from(0, &omegas)?;
+        self.program
+            .write_from_buffer(&self.omegas_buffer, 0, &omegas)?;
 
         Ok(())
     }
@@ -134,7 +142,7 @@ where
         let max_deg = cmp::min(MAX_LOG2_RADIX, log_n);
         self.setup_pq_omegas(omega, n, max_deg)?;
 
-        src_buffer.write_from(0, &*a)?;
+        self.program.write_from_buffer(&src_buffer, 0, &*a)?;
         let mut log_p = 0u32;
         while log_p < log_n {
             let deg = cmp::min(max_deg, log_n - log_p);
@@ -143,7 +151,7 @@ where
             std::mem::swap(&mut src_buffer, &mut dst_buffer);
         }
 
-        src_buffer.read_into(0, a)?;
+        self.program.read_into_buffer(&src_buffer, 0, a)?;
 
         Ok(())
     }

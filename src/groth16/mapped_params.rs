@@ -2,9 +2,8 @@ use crate::bls::Engine;
 use groupy::{CurveAffine, EncodedPoint};
 
 use crate::SynthesisError;
-
-use memmap::Mmap;
 use rayon::prelude::*;
+use memmap::Mmap;
 
 use std::fs::File;
 use std::io;

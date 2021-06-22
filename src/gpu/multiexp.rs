@@ -8,10 +8,13 @@ use crate::multiexp::{multiexp as cpu_multiexp, FullDensity};
 use ff::{PrimeField, ScalarEngine};
 use groupy::{CurveAffine, CurveProjective};
 use log::{error, info};
-use rayon::prelude::*;
 use rust_gpu_tools::*;
 use std::any::TypeId;
 use std::sync::Arc;
+
+use std::sync::mpsc;
+extern crate scoped_threadpool;
+use scoped_threadpool::Pool;
 
 const MAX_WINDOW_SIZE: usize = 10;
 const LOCAL_WORK_SIZE: usize = 256;
@@ -143,12 +146,12 @@ where
         // be `num_groups` * `num_windows` threads in total.
         // Each thread will use `num_groups` * `num_windows` * `bucket_len` buckets.
 
-        let mut base_buffer = self.program.create_buffer::<G>(n)?;
-        base_buffer.write_from(0, bases)?;
-        let mut exp_buffer = self
+        let base_buffer = self.program.create_buffer::<G>(n)?;
+        self.program.write_from_buffer(&base_buffer, 0, bases)?;
+        let exp_buffer = self
             .program
             .create_buffer::<<<G::Engine as ScalarEngine>::Fr as PrimeField>::Repr>(n)?;
-        exp_buffer.write_from(0, exps)?;
+        self.program.write_from_buffer(&exp_buffer, 0, exps)?;
 
         let bucket_buffer = self
             .program
@@ -171,7 +174,7 @@ where
                 return Err(GPUError::Simple("Only E::G1 and E::G2 are supported!"));
             },
             global_work_size,
-            None,
+            Some(LOCAL_WORK_SIZE),
         );
 
         kernel
@@ -186,7 +189,8 @@ where
             .run()?;
 
         let mut results = vec![<G as CurveAffine>::Projective::zero(); num_groups * num_windows];
-        result_buffer.read_into(0, &mut results)?;
+        self.program
+            .read_into_buffer(&result_buffer, 0, &mut results)?;
 
         // Using the algorithm below, we can calculate the final result by accumulating the results
         // of those `NUM_GROUPS` * `NUM_WINDOWS` threads.
@@ -213,7 +217,7 @@ where
     E: Engine,
 {
     kernels: Vec<SingleMultiexpKernel<E>>,
-    _lock: locks::GPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
+    _lock: locks::MultiGPULock, // RFC 1857: struct fields are dropped in the same order as they are declared.
 }
 
 impl<E> MultiexpKernel<E>
@@ -221,13 +225,34 @@ where
     E: Engine,
 {
     pub fn create(priority: bool) -> GPUResult<MultiexpKernel<E>> {
-        let lock = locks::GPULock::lock();
-
-        let devices = opencl::Device::all();
-
+        let mode = crate::gpu::prove_mode();
+        let count =
+        match mode.as_str() {
+            "y" | "Y"=> 2,
+            "n" | "N" => 1,
+            _ => mode.parse().unwrap_or(1)
+        };
+        let one_dev = crate::gpu::try_one_device(1000);
+        if one_dev.is_none() {
+            return Err(GPUError::Simple("GPU busy?"));
+        }
+        let (d,l) = one_dev.unwrap();
+        let mut lock = locks::MultiGPULock::lock_file(l,d.bus_id().unwrap());
+        let mut devices = vec![d];
+        for _x in 1..count {
+            let other_dev = crate::gpu::try_one_device(2);
+            if other_dev.is_some() {
+                let (d2,l2) = other_dev.unwrap();
+                lock.append_lock(l2,d2.bus_id().unwrap());
+                devices.push(d2);
+            }
+            else{
+                break;
+            }
+        }
         let kernels: Vec<_> = devices
             .into_iter()
-            .map(|d| (d, SingleMultiexpKernel::<E>::create(d.clone(), priority)))
+            .map(|d| (d.clone(), SingleMultiexpKernel::<E>::create(d.clone(), priority)))
             .filter_map(|(device, res)| {
                 if let Err(ref e) = res {
                     error!(
@@ -279,56 +304,75 @@ where
         // https://github.com/zkcrypto/bellman/blob/10c5010fd9c2ca69442dc9775ea271e286e776d8/src/multiexp.rs#L38
         let bases = &bases[skip..(skip + n)];
         let exps = &exps[..n];
-
         let cpu_n = ((n as f64) * get_cpu_utilization()) as usize;
         let n = n - cpu_n;
         let (cpu_bases, bases) = bases.split_at(cpu_n);
         let (cpu_exps, exps) = exps.split_at(cpu_n);
-
         let chunk_size = ((n as f64) / (num_devices as f64)).ceil() as usize;
 
-        let mut acc = <G as CurveAffine>::Projective::zero();
+        crate::create_local_pool().install(|| {
+            use rayon::prelude::*;
 
-        let results = crate::multicore::THREAD_POOL.install(|| {
-            if n > 0 {
-                bases
-                .par_chunks(chunk_size)
-                .zip(exps.par_chunks(chunk_size))
-                .zip(self.kernels.par_iter_mut())
-                .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
-                    let mut acc = <G as CurveAffine>::Projective::zero();
-                    for (bases, exps) in bases.chunks(kern.n).zip(exps.chunks(kern.n)) {
-                        match kern.multiexp(bases, exps, bases.len()) {
-                            Ok(result) => acc.add_assign(&result),
-                            Err(e) => return Err(e),
-                        }
-                    }
+            let mut acc = <G as CurveAffine>::Projective::zero();
 
-                    Ok(acc)
-                })
-                .collect::<Vec<_>>()
-            } else {
-                Vec::new()
+            // concurrent computing
+            let (tx_gpu, rx_gpu) = mpsc::channel();
+            let (tx_cpu, rx_cpu) = mpsc::channel();
+            let mut scoped_pool = Pool::new(2);
+            scoped_pool.scoped(|scoped| {
+                // GPU
+                scoped.execute(move || {
+                    let results = if n > 0 {
+                        bases
+                            .par_chunks(chunk_size)
+                            .zip(exps.par_chunks(chunk_size))
+                            .zip(self.kernels.par_iter_mut())
+                            .map(|((bases, exps), kern)| -> Result<<G as CurveAffine>::Projective, GPUError> {
+                                let mut acc = <G as CurveAffine>::Projective::zero();
+                                let mut jack_chunk = kern.n;
+                                let size_result = std::mem::size_of::<<G as CurveAffine>::Projective>();
+                                if size_result > 144 {
+                                    jack_chunk = (jack_chunk as f64 / 10f64).ceil() as usize;
+                                }
+                                for (bases, exps) in bases.chunks(jack_chunk).zip(exps.chunks(jack_chunk)) {
+                                    let result = kern.multiexp(bases, exps, bases.len())?;
+                                    acc.add_assign(&result);
+                                }
+
+                                Ok(acc)
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
+
+                    tx_gpu.send(results).unwrap();
+
+                });
+                // CPU
+                scoped.execute(move || {
+                    let cpu_acc = cpu_multiexp(
+                        &pool,
+                        (Arc::new(cpu_bases.to_vec()), 0),
+                        FullDensity,
+                        Arc::new(cpu_exps.to_vec()),
+                        &mut None,
+                    );
+                    let cpu_r = cpu_acc.wait().unwrap();
+
+                    tx_cpu.send(cpu_r).unwrap();
+                });
+            });
+
+            // waiting results...
+            let results = rx_gpu.recv().unwrap();
+            let cpu_r = rx_cpu.recv().unwrap();
+
+            for r in results {
+                acc.add_assign(&r?);
             }
-        });
-
-        let cpu_acc = cpu_multiexp(
-            &pool,
-            (Arc::new(cpu_bases.to_vec()), 0),
-            FullDensity,
-            Arc::new(cpu_exps.to_vec()),
-            &mut None,
-        );
-
-        for r in results {
-            match r {
-                Ok(r) => acc.add_assign(&r),
-                Err(e) => return Err(e),
-            }
-        }
-
-        acc.add_assign(&cpu_acc.wait().unwrap());
-
-        Ok(acc)
+            acc.add_assign(&cpu_r);
+            Ok(acc)
+        })
     }
 }
